@@ -1,9 +1,9 @@
 ---
 title: simgeometry
-description: Template repository for Python projects.
+description: Shapes, grids, and domains for numerical simulations.
 template: splash
 hero:
-  tagline: A starting point for a Python package with tests, CI, tutorials and an Astro documentation site.
+  tagline: Shapes, structured grids, MPI decomposition, and simulation domains for Python.
   actions:
     - text: Get started
       link: /simgeometry/getting-started/installation/
@@ -16,32 +16,18 @@ hero:
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-## What is included
+## Geometry for simulations
 
 <CardGrid>
-	<Card title="Package layout" icon="open-book">
-		A `src/` layout with a console entry point, `pytest` tests and a `pyproject.toml` ready for PyPI.
-	</Card>
-	<Card title="Continuous integration" icon="rocket">
-		GitHub Actions for tests, static analysis, tutorial execution, documentation and PyPI publishing.
-	</Card>
-	<Card title="Tutorials" icon="document">
-		Jupyter notebooks in `tutorials/` are executed and published as pages of this site.
-	</Card>
-	<Card title="Full examples" icon="document">
-		Complete Python scripts in `examples/` are shown with their plots.
-	</Card>
-	<Card title="API reference" icon="setting">
-		Every module, class and function is documented from the docstrings with starlight-pydocs.
-	</Card>
+  <Card title="Shapes" icon="setting">1D, 2D, and 3D objects with point containment and grid node masks.</Card>
+  <Card title="Grids" icon="open-book">Structured grids and bounding boxes with periodic axes.</Card>
+  <Card title="Parallel domains" icon="rocket">MPI domain decomposition and multipatch geometry.</Card>
 </CardGrid>
 
 ## Start here
 
 <CardGrid>
-	<LinkCard title="Installation" href="/simgeometry/getting-started/installation/" description="Create an environment and install the package." />
-	<LinkCard title="Quickstart" href="/simgeometry/getting-started/quickstart/" description="Run the command line entry point." />
-	<LinkCard title="Tutorials" href="/simgeometry/tutorials/" description="Executed notebooks with their outputs." />
-	<LinkCard title="Full examples" href="/simgeometry/full-examples/" description="Complete scripts and their plots." />
-	<LinkCard title="API reference" href="/simgeometry/api/simgeometry/" description="Generated from the docstrings." />
+  <LinkCard title="Installation" href="/simgeometry/getting-started/installation/" description="Install the package." />
+  <LinkCard title="Quickstart" href="/simgeometry/getting-started/quickstart/" description="Build a grid and query a shape." />
+  <LinkCard title="API reference" href="/simgeometry/api/simgeometry/" description="Generated from the docstrings." />
 </CardGrid>

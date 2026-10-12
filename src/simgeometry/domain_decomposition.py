@@ -1,0 +1,496 @@
+"""Process grid of the MPI ranks and the physical subdomain each one owns.
+
+The process grid decides which rank owns which part of the domain. It is used for
+particles (:meth:`DomainDecomposition.owner_rank_for_position`) and, through
+:meth:`DomainDecomposition.layout`, for the :class:`mpiarray.DistributedArray` of the
+fields, so that markers and fields agree on who owns what.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+import mpiarray as mpa
+import numpy as np
+from maybempi import MPI
+
+
+class DomainDecomposition:
+    """Represent the MPI process grid of a decomposed domain."""
+
+    def _calculate_neighbor_ranks(self) -> list[tuple[int, int]]:
+        """
+        Given a Cartesian decomposition of MPI ranks and your own rank,
+        compute the neighbor ranks in each dimension.
+
+        Returns
+        -------
+        neighbor_ranks : List[Tuple[int, int]]
+            For each dim i, a tuple (left_rank, right_rank). If you're at the
+            boundary on the left (resp. right), left_rank (resp. right_rank)
+            is MPI.PROC_NULL.
+        """
+        proc_sizes = self.proc_sizes
+        rank = self.mpi_rank
+
+        ndim = len(proc_sizes)
+        # compute strides so that flat_rank = sum(coords[i] * strides[i])
+        strides = [math.prod(proc_sizes[i + 1 :]) for i in range(ndim)]
+
+        # decode flat rank → multi‐dim coords
+        coords = []
+        rem = rank
+        for i in range(ndim):
+            stride = strides[i]
+            c = rem // stride
+            coords.append(c)
+            rem %= stride
+
+        def rank_from_coords(process_coords: list[int]) -> int:
+            """Convert process coordinates to a flat MPI rank."""
+            return sum(process_coords[j] * strides[j] for j in range(ndim))
+
+        neighbors = []
+        for i in range(ndim):
+            # LEFT neighbor
+            if coords[i] > 0:
+                left_coords = coords.copy()
+                left_coords[i] -= 1
+                left_rank = rank_from_coords(left_coords)
+            else:
+                if self.periodic[i]:
+                    left_coords = coords.copy()
+                    left_coords[i] = proc_sizes[i] - 1
+                    left_rank = rank_from_coords(left_coords)
+                else:
+                    left_rank = MPI.PROC_NULL
+
+            # RIGHT neighbor
+            if coords[i] < proc_sizes[i] - 1:
+                right_coords = coords.copy()
+                right_coords[i] += 1
+                right_rank = rank_from_coords(right_coords)
+            else:
+                if self.periodic[i]:
+                    right_coords = coords.copy()
+                    right_coords[i] = 0
+                    right_rank = rank_from_coords(right_coords)
+                else:
+                    right_rank = MPI.PROC_NULL
+
+            neighbors.append((left_rank, right_rank))
+
+        return neighbors
+
+    def _calculate_proc_sizes(self) -> list[int]:
+        """
+        Calculate the optimal number of processes in each dimension based on the
+        total number of processes and the domain decomposition flags.
+
+        Args:
+            size: Total number of MPI processes.
+            domain_decomposition: List of booleans indicating whether to decompose
+                                along each dimension (e.g., [True, True, False]
+                                for decomposing in x and y but not z in 3D).
+
+        Returns:
+            proc_sizes: List of integers indicating the number of processes in each
+                        dimension, matching the length of domain_decomposition.
+                        For example: [2, 6, 1] for 12 processes in a 2x6 grid in 3D.
+
+        Raises:
+            ValueError: If the size cannot be evenly distributed among any set of requested dimensions.
+        """
+
+        size = self.mpi_size
+        domain_decomposition = self.decompose
+
+        ndim = self.ndim
+        proc_sizes = [1] * ndim  # Initialize proc_sizes with 1 in each dimension
+
+        # Priority Decomposition: Start with all requested dimensions
+        active_decomposition = domain_decomposition[:]
+
+        while True:
+            # Calculate the target number of processes per active dimension
+            decompose_dims = sum(active_decomposition)
+
+            if decompose_dims == 0:
+                # No decomposable dimensions left, fallback to 1D decomposition
+                proc_sizes = [1] * ndim
+                for i in range(ndim):
+                    if domain_decomposition[i]:
+                        proc_sizes[i] = size
+                        break
+                return proc_sizes
+
+            # Reset proc_sizes and remaining_size for current attempt
+            proc_sizes = [1] * ndim
+            remaining_size = size
+
+            for i in range(ndim):
+                if active_decomposition[i]:
+                    # Calculate the approximate target number of processes in this dimension
+                    target_procs = round(remaining_size ** (1 / decompose_dims))
+
+                    # Adjust target_procs to be a divisor of the remaining_size
+                    while remaining_size % target_procs != 0 and target_procs > 1:
+                        target_procs -= 1
+
+                    # Assign the calculated target_procs to this dimension
+                    proc_sizes[i] = target_procs
+                    remaining_size //= target_procs
+                    decompose_dims -= 1
+
+            # Check if the decomposition works
+            product_of_procs = math.prod(
+                [proc_sizes[i] for i in range(ndim) if active_decomposition[i]],
+            )
+
+            if product_of_procs == size:
+                return proc_sizes
+
+            # If not, disable the last dimension in active_decomposition and try again
+            for j in reversed(range(ndim)):
+                if active_decomposition[j]:
+                    active_decomposition[j] = False
+                    break
+
+    def __init__(
+        self,
+        comm: MPI.Comm | None,
+        decompose: list[bool] | None = None,
+        periodic: tuple[bool, ...] | None = None,
+        ndim: int | None = None,
+    ) -> None:
+        """Initialize the process grid of ``comm`` for the decomposed axes."""
+        self._comm = comm
+        if self.comm is None:
+            self._mpi_size = 1
+            self._mpi_rank = 0
+        else:
+            self._mpi_size = comm.Get_size()
+            self._mpi_rank = comm.Get_rank()
+
+        assert ndim is not None or decompose is not None, (
+            "DomainDecomposition must take either ndim or decompose!"
+        )
+
+        if ndim is None:
+            ndim = len(decompose)
+        self._ndim = ndim
+
+        if decompose is None:
+            self._decompose = [True] * self.ndim
+        else:
+            self._decompose = list(decompose)
+        assert len(self.decompose) == self.ndim
+
+        if periodic is None:
+            periodic = [False] * self.ndim
+        self._periodic = tuple(periodic)
+        assert len(self.periodic) == self.ndim
+
+        self._proc_sizes = self._calculate_proc_sizes()
+
+        # With no decomposed axis the process grid has a single slot and every
+        # rank holds the whole domain; all ranks then share process coordinate 0.
+        self._replicated = self.mpi_size > 1 and math.prod(self.proc_sizes) == 1
+
+        # Ranks are placed row-major on the process grid, as mpiarray does.
+        if self.replicated:
+            self._neighbour_ranks = [
+                (
+                    (self.mpi_rank, self.mpi_rank)
+                    if is_periodic
+                    else (MPI.PROC_NULL, MPI.PROC_NULL)
+                )
+                for is_periodic in self.periodic
+            ]
+        else:
+            self._neighbour_ranks = self._calculate_neighbor_ranks()
+
+    def layout(
+        self,
+        shape: tuple[int, ...],
+        halo: int | Sequence[int] = 0,
+        periodic: Sequence[bool] | None = None,
+    ) -> mpa.Layout:
+        """Return the :class:`mpiarray.Layout` of an array of ``shape`` on this process grid.
+
+        Axes after ``ndim`` (for example the component axis of a field) are not
+        split. ``periodic`` defaults to this decomposition's flags, padded with
+        ``False`` for the extra axes.
+        """
+        extra = len(shape) - self.ndim
+        if extra < 0:
+            raise ValueError(f"shape {shape} has fewer than {self.ndim} axes")
+        if periodic is None:
+            periodic = (*self.periodic, *([False] * extra))
+        comm = MPI.COMM_SELF if self.comm is None else self.comm
+        if self.replicated:
+            # No axis is split: every rank holds the whole array.
+            return mpa.Layout(
+                shape, comm=comm, split=None, halo=halo, periodic=periodic
+            )
+        return mpa.Layout(
+            shape,
+            comm=comm,
+            halo=halo,
+            periodic=periodic,
+            process_grid=(*self.proc_sizes, *([1] * extra)),
+        )
+
+    def node_cuts(self, shape: Sequence[int]) -> tuple[tuple[int, ...] | None, ...]:
+        """Return where the blocks of a grid of ``shape`` nodes start and end, per axis.
+
+        ``(0, c1, ..., n)`` along a split axis (process coordinate ``c`` owns
+        nodes ``cuts[c] <= i < cuts[c + 1]``), ``None`` along the others. This
+        is the one split of the grid: the field arrays (:meth:`layout`), the
+        solver's matrix rows and the markers (:meth:`subdomain_edges`) all
+        follow it.
+        """
+        if len(shape) != self.ndim:
+            raise ValueError(f"Expected a shape with {self.ndim} axes, got {shape}")
+        cuts: list[tuple[int, ...] | None] = []
+        for length, num_procs in zip(shape, self.proc_sizes, strict=True):
+            if num_procs == 1 or self.replicated:
+                cuts.append(None)
+                continue
+            starts = [
+                mpa.chunk_bounds(int(length), num_procs, c)[0] for c in range(num_procs)
+            ]
+            cuts.append((*starts, int(length)))
+        return tuple(cuts)
+
+    def get_proc_coord(self, rank: int) -> tuple[int, ...]:
+        """Return process coordinates for one rank."""
+        if self.replicated:
+            rank = 0
+        coords = []
+        for size in reversed(self.proc_sizes):
+            coords.append(rank % size)
+            rank //= size
+        return tuple(reversed(coords))
+
+    def rank_from_proc_coord(self, proc_coord: tuple[int, ...]) -> int:
+        """Return the flat MPI rank for process coordinates."""
+        if len(proc_coord) != self.ndim:
+            raise ValueError(f"Expected {self.ndim} process coordinates")
+        strides = [math.prod(self.proc_sizes[i + 1 :]) for i in range(self.ndim)]
+        return int(sum(proc_coord[i] * strides[i] for i in range(self.ndim)))
+
+    def get_index_bounds(
+        self,
+        shape: tuple[int, ...],
+        rank: int | None = None,
+    ) -> list[tuple[int, int]]:
+        """Return global index bounds for one rank over a decomposed shape."""
+        if rank is None:
+            rank = self.mpi_rank
+        if len(shape) != self.ndim:
+            raise ValueError(f"Expected shape with {self.ndim} dimensions")
+        coord = self.get_proc_coord(rank)
+        cuts = self.node_cuts(shape)
+        return [
+            (0, int(length)) if axis_cuts is None else axis_cuts[c : c + 2]
+            for length, axis_cuts, c in zip(shape, cuts, coord, strict=True)
+        ]
+
+    def subdomain_edges(
+        self, dim: int, lower: float, upper: float, num_nodes: int
+    ) -> list[float]:
+        """Return the ``proc_sizes[dim] + 1`` edges of the subdomains along one axis.
+
+        The edges sit on the nodes where :meth:`node_cuts` splits the
+        ``num_nodes`` nodes of the axis (``n - 1`` cells over ``[lower,
+        upper]``, ``n`` on a periodic axis). Process coordinate ``c`` owns
+        ``[edges[c], edges[c + 1])``, the cells whose lower node it owns; the
+        last one also owns ``upper``. This is the split
+        ``owner_rank_for_position`` uses.
+        """
+        num_procs = self.proc_sizes[dim]
+        if num_procs == 1 or self.replicated:
+            return [lower, upper]
+        cells = num_nodes if self.periodic[dim] else num_nodes - 1
+        spacing = (upper - lower) / cells
+        starts = [
+            mpa.chunk_bounds(int(num_nodes), num_procs, c)[0] for c in range(num_procs)
+        ]
+        return [lower + start * spacing for start in starts] + [upper]
+
+    def subdomain_bounds(
+        self,
+        rank: int,
+        lower_bound: tuple[float, ...],
+        upper_bound: tuple[float, ...],
+        num_gridpoints: tuple[int, ...],
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """Return the physical ``(lower, upper)`` corners of one rank's subdomain."""
+        proc_coord = self.get_proc_coord(rank)
+        lower = []
+        upper = []
+        for dim in range(self.ndim):
+            edges = self.subdomain_edges(
+                dim,
+                float(lower_bound[dim]),
+                float(upper_bound[dim]),
+                int(num_gridpoints[dim]),
+            )
+            lower.append(edges[proc_coord[dim]])
+            upper.append(edges[proc_coord[dim] + 1])
+        return tuple(lower), tuple(upper)
+
+    def owner_rank_for_position(
+        self,
+        position: Sequence[float] | np.ndarray,
+        lower_bound: tuple[float, ...],
+        upper_bound: tuple[float, ...],
+        num_gridpoints: tuple[int, ...],
+    ) -> int:
+        """Return the rank owning a physical position in a decomposed grid."""
+        if len(lower_bound) != self.ndim or len(upper_bound) != self.ndim:
+            raise ValueError("Bounds must match decomposition dimensions")
+        if len(num_gridpoints) != self.ndim:
+            raise ValueError("num_gridpoints must match decomposition dimensions")
+
+        proc_coord = []
+        for dim, (lower, upper, num_procs) in enumerate(
+            zip(
+                lower_bound,
+                upper_bound,
+                self.proc_sizes,
+            ),
+        ):
+            coord = num_procs - 1
+            value = float(position[dim])
+            edges = self.subdomain_edges(
+                dim, float(lower), float(upper), int(num_gridpoints[dim])
+            )
+            for candidate_coord in range(num_procs):
+                subdomain_lower = edges[candidate_coord]
+                subdomain_upper = edges[candidate_coord + 1]
+                if subdomain_lower <= value < subdomain_upper or (
+                    candidate_coord == num_procs - 1 and value == subdomain_upper
+                ):
+                    coord = candidate_coord
+                    break
+            proc_coord.append(coord)
+        return self.rank_from_proc_coord(tuple(proc_coord))
+
+    @property
+    def comm(self) -> MPI.Comm | None:
+        """Return the MPI communicator."""
+        return self._comm
+
+    @property
+    def mpi_size(self) -> int:
+        """Return the MPI size."""
+        return self._mpi_size
+
+    @property
+    def mpi_rank(self) -> int:
+        """Return the MPI rank."""
+        return self._mpi_rank
+
+    @property
+    def ndim(self) -> int:
+        """Return the number of spatial dimensions."""
+        return self._ndim
+
+    @property
+    def decompose(self) -> list[bool]:
+        """Return flags indicating decomposed axes."""
+        return self._decompose
+
+    @property
+    def replicated(self) -> bool:
+        """Return whether every rank holds the whole domain (no decomposed axis)."""
+        return self._replicated
+
+    @property
+    def proc_sizes(self) -> list[int]:
+        """Return process counts along each axis."""
+        return self._proc_sizes
+
+    @property
+    def proc_coord(self) -> tuple[int, ...]:
+        """Return this rank process coordinates."""
+        return self.get_proc_coord(self.mpi_rank)
+
+    @property
+    def neighbour_ranks(self) -> list[tuple[int, int]]:
+        """Return neighboring MPI ranks."""
+        return self._neighbour_ranks
+
+    @property
+    def periodic(self) -> tuple[bool, ...]:
+        """Return periodicity flags for each axis."""
+        return self._periodic
+
+
+def calculate_proc_sizes(size: int, domain_decomposition: list[bool]) -> list[int]:
+    """
+    Calculate the optimal number of processes in each dimension based on the
+    total number of processes and the domain decomposition flags.
+
+    Args:
+        size: Total number of MPI processes. (e.g., [True, True, False])
+
+    Returns:
+        proc_sizes: Number of processes in each dimension, (e.g., [2, 6, 1])
+
+    Raises:
+        ValueError: If the size cannot be evenly distributed among any set of requested dimensions.
+    """
+    ndim = len(domain_decomposition)
+    proc_sizes = [1] * ndim  # Initialize proc_sizes with 1 in each dimension
+
+    # Priority Decomposition: Start with all requested dimensions
+    active_decomposition = domain_decomposition[:]
+
+    while True:
+        # Calculate the target number of processes per active dimension
+        decompose_dims = sum(active_decomposition)
+
+        if decompose_dims == 0:
+            # No decomposable dimensions left, fallback to 1D decomposition
+            proc_sizes = [1] * ndim
+            for i in range(ndim):
+                if domain_decomposition[i]:
+                    proc_sizes[i] = size
+                    break
+            return proc_sizes
+
+        # Reset proc_sizes and remaining_size for current attempt
+        proc_sizes = [1] * ndim
+        remaining_size = size
+
+        for i in range(ndim):
+            if active_decomposition[i]:
+                # Calculate the approximate target number of processes in this dimension
+                target_procs = round(remaining_size ** (1 / decompose_dims))
+
+                # Adjust target_procs to be a divisor of the remaining_size
+                while remaining_size % target_procs != 0 and target_procs > 1:
+                    target_procs -= 1
+
+                # Assign the calculated target_procs to this dimension
+                proc_sizes[i] = target_procs
+                remaining_size //= target_procs
+                decompose_dims -= 1
+
+        # Check if the decomposition works
+        product_of_procs = math.prod(
+            [proc_sizes[i] for i in range(ndim) if active_decomposition[i]],
+        )
+
+        if product_of_procs == size:
+            return proc_sizes
+
+        # If not, disable the last dimension in active_decomposition and try again
+        for j in reversed(range(ndim)):
+            if active_decomposition[j]:
+                active_decomposition[j] = False
+                break

@@ -1,26 +1,17 @@
 ---
 title: Quickstart
-description: Run the command line entry point of simgeometry.
+description: Build a grid and query a shape with simgeometry.
 ---
 
-First, ensure that `simgeometry` is [installed](/simgeometry/getting-started/installation/).
-
-## Basic usage
-
-After installation, you can run the application with:
-
-```bash
-simgeometry
-```
-
-which calls `simgeometry.main.main` and prints a greeting.
-
-## Use the package from Python
+Install `simgeometry`, then use its geometry modules from Python:
 
 ```python
-from simgeometry.main import main
+from simgeometry.grid import Grid
+from simgeometry.objects import Circle
 
-main()
+grid = Grid(ndim=2, lower_bound=(0, 0), upper_bound=(1, 1), num_gridpoints=(32, 32))
+circle = Circle(midpoint=(0.5, 0.5), radius=0.25)
+mask = circle.node_mask(grid)
 ```
 
-See the [API reference](/simgeometry/api/simgeometry/) for every module and function.
+`mask` marks the grid nodes inside the circle.

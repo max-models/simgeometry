@@ -14,14 +14,10 @@ pip install --upgrade pip
 Install the package and its requirements with pip:
 
 ```bash
-pip install -e .
+pip install simgeometry
 ```
 
-Run the code with:
-
-```bash
-simgeometry
-```
+Import the package with `from simgeometry.grid import Grid`.
 
 ## Optional extras
 
