@@ -1,23 +1,26 @@
 # simgeometry
 
-Geometry primitives for numerical simulations: bounded domains, structured grids,
-MPI domain decomposition, multipatch geometry, and 1D, 2D, and 3D shapes.
-Originally developed for [Picnic](https://github.com/max-models/picnic).
+
+Geometry primitives for numerical simulations: bounded domains,
+structured grids, MPI domain decomposition, multipatch geometry, and 1D,
+2D, and 3D shapes. Originally developed for
+[Picnic](https://github.com/max-models/picnic).
 
 ## Install
 
-```bash
+``` bash
 pip install simgeometry
 ```
 
 For development, install this checkout with `pip install -e '.[test]'`.
-NumPy, cunumpy, maybempi, and mpiarray are runtime dependencies. Matplotlib is
-optional and used only by the plotting methods (`pip install simgeometry[plot]`).
-Install `simgeometry[mpi]` to enable MPI runs through mpi4py.
+NumPy, cunumpy, maybempi, and mpiarray are runtime dependencies.
+Matplotlib is optional and used only by the plotting methods
+(`pip install simgeometry[plot]`). Install `simgeometry[mpi]` to enable
+MPI runs through mpi4py.
 
 ## Example
 
-```python
+``` python
 from simgeometry.grid import Grid
 from simgeometry.objects import Circle
 
@@ -26,14 +29,15 @@ grid = Grid(ndim=2, lower_bound=(0, 0), upper_bound=(1, 1), num_gridpoints=(32, 
 mask = boundary.node_mask(grid)
 ```
 
-`SimulationDomain` accepts field and particle boundary objects through their
-`get_bc(dir=..., side=...).bc_type` interface. Applications may supply a seeded
-random function with `BoundingBox.random` and an accelerated particle boundary
-implementation with `SimulationDomain.boundary_kernel`.
+`SimulationDomain` accepts field and particle boundary objects through
+their `get_bc(dir=..., side=...).bc_type` interface. Applications may
+supply a seeded random function with `BoundingBox.random` and an
+accelerated particle boundary implementation with
+`SimulationDomain.boundary_kernel`.
 
 ## Development
 
-```bash
+``` bash
 pytest src/simgeometry/tests
 ```
 
