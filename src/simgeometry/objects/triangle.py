@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import cunumpy as xp
-import numpy as np
 
 from .._types import Array, ConfigValue, Vertices2DLike
 from ..point import Point2D
@@ -97,46 +96,6 @@ class Triangle(Shape2D):
 
         self.set_bounding_box(lower_bound, upper_bound)
 
-    def _contains_triangle(self, coords: Array) -> bool:
-        """
-        Check if the given coordinates are inside the triangle.
-
-        Parameters:
-        coords (list or tuple): Coordinates (x, y).
-
-        Returns:
-        bool: True if the point is inside the triangle, False otherwise.
-        """
-        point = xp.to_numpy(coords)
-        vertices = [xp.to_numpy(vertex) for vertex in self._vertices]
-
-        # First check if the point is inside the bounding box
-        if not self.bounding_box.contains(coords):
-            return False
-
-        # Use barycentric coordinates to check if point is inside the triangle
-        v0 = vertices[2] - vertices[0]
-        v1 = vertices[1] - vertices[0]
-        v2 = point - vertices[0]
-
-        # Compute dot products
-        dot00 = np.dot(v0, v0)
-        dot01 = np.dot(v0, v1)
-        dot02 = np.dot(v0, v2)
-        dot11 = np.dot(v1, v1)
-        dot12 = np.dot(v1, v2)
-
-        # Compute barycentric coordinates
-        denom = dot00 * dot11 - dot01 * dot01
-        if denom == 0:
-            return False  # Degenerate triangle
-        inv_denom = 1 / denom
-        u = (dot11 * dot02 - dot01 * dot12) * inv_denom
-        v = (dot00 * dot12 - dot01 * dot02) * inv_denom
-
-        # Check if point is in triangle
-        return (u >= 0) and (v >= 0) and (u + v <= 1)
-
     def contains(self, coords: Array) -> bool:
         """
         Check if the given coordinates are inside the (possibly inverted) triangle.
@@ -147,7 +106,10 @@ class Triangle(Shape2D):
         Returns:
         bool: True if the point is inside the object, False otherwise.
         """
-        return self._apply_inversion(self._contains_triangle(coords))
+        # Use the same arithmetic as the batch path. Separate scalar dot
+        # products can round differently at an edge and disagree with node_mask.
+        point = xp.asarray(coords, dtype=float).reshape(2, 1)
+        return bool(xp.to_numpy(self.contains_points(point))[0])
 
     def contains_points(self, points: Array) -> Array:
         """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
@@ -156,8 +118,7 @@ class Triangle(Shape2D):
         lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
         in_box = xp.all((points >= lower) & (points < upper), axis=0)
-        # the barycentric test of _contains_triangle, with its dot products
-        # written out in the same order
+        # Barycentric coordinates for every point, including the edges.
         v0 = vertices[2] - vertices[0]
         v1 = vertices[1] - vertices[0]
         v2x = points[0] - vertices[0][0]
