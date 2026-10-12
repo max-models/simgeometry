@@ -3,7 +3,8 @@
 
 Geometry primitives for numerical simulations: bounded domains,
 structured grids, MPI domain decomposition, multipatch geometry, and 1D,
-2D, and 3D shapes. Originally developed for
+2D, and 3D shapes. Box, ball, and polygon containment have NumPy,
+Pyccel, CUDA, and Metal implementations. Originally developed for
 [Picnic](https://github.com/max-models/picnic).
 
 ## Install
@@ -15,8 +16,9 @@ pip install simgeometry
 For development, install this checkout with `pip install -e '.[test]'`.
 NumPy, cunumpy, maybempi, and mpiarray are runtime dependencies.
 Matplotlib is optional and used only by the plotting methods
-(`pip install simgeometry[plot]`). Install `simgeometry[mpi]` to enable
-MPI runs through mpi4py.
+(`pip install simgeometry[plot]`). Install `simgeometry[mpi]` for MPI,
+`simgeometry[pyccel]` for compiled CPU containment kernels, or
+`simgeometry[gpu]` for CUDA.
 
 ## Example
 

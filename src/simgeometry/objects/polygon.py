@@ -5,6 +5,7 @@ from __future__ import annotations
 import cunumpy as xp
 from numpy import ndarray
 
+from ..kernels.contains_polygon_2d import kernel as contains_polygon_2d
 from ..point import Point2D
 from ..pointlist import PointList
 from ..shapes import Shape2D, _component_major
@@ -176,15 +177,13 @@ class Polygon(Shape2D):
         vertices = xp.asarray(self._vertices, dtype=float)
         lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
-        # Even-odd ray casting, vectorized over points on the active backend.
-        x, y = points
-        inside = xp.zeros(points.shape[1], dtype=bool)
-        xj, yj = vertices[-1]
-        for xi, yi in vertices:
-            inside ^= ((yi > y) != (yj > y)) & (
-                x < (xj - xi) * (y - yi) / ((yj - yi) + 1e-16) + xi
-            )
-            xj, yj = xi, yi
+        inside = xp.empty(points.shape[1], dtype=bool)
+        contains_polygon_2d(
+            xp.ascontiguousarray(points),
+            inside,
+            vertices,
+            0,
+        )
         inside &= (points[0] >= lower[0]) & (points[0] < upper[0])
         inside &= (points[1] >= lower[1]) & (points[1] < upper[1])
         return ~inside if self.inverted else inside
