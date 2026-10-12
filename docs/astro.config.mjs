@@ -23,7 +23,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'simgeometry',
-			description: 'Template repository for Python projects.',
+			description: 'Shapes, structured grids, and domains for numerical simulations.',
 			customCss: ['katex/dist/katex.min.css', './src/styles/custom.css'],
 			components: {
 				Header: './src/components/Header.astro',
@@ -67,6 +67,9 @@ export default defineConfig({
 					items: [
 						{ label: 'Installation', slug: 'getting-started/installation' },
 						{ label: 'Quickstart', slug: 'getting-started/quickstart' },
+						{ label: 'Grids and coordinates', slug: 'getting-started/grids' },
+						{ label: 'Shapes and node masks', slug: 'getting-started/shapes' },
+						{ label: 'Parallel and multipatch grids', slug: 'getting-started/parallel-and-patches' },
 					],
 				},
 				{
