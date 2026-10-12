@@ -5,10 +5,10 @@ from __future__ import annotations
 import cunumpy as xp
 from numpy import ndarray
 
-from .._types import ConfigValue
-from ..objects.polygon import Polygon
-from ..pointlist import PointList
-from ..shapes import Shape2D
+from simgeometry._types import ConfigValue
+from simgeometry.objects.polygon import Polygon
+from simgeometry.pointlist import PointList
+from simgeometry.shapes import Shape2D
 
 
 class Aperture2D(Shape2D):

@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from .shapes import Shape2D
-from .simulation_domain import SimulationDomain
+from simgeometry.shapes import Shape2D
+from simgeometry.simulation_domain import SimulationDomain
 
 # Draw order: grid lines, objects, then the domain outline.
 ZORDER_GRID = 1.5
@@ -91,7 +91,7 @@ def draw_shape(
     from matplotlib.patches import PathPatch, Polygon
     from matplotlib.path import Path
 
-    from .objects.function_object import FunctionObject2D
+    from simgeometry.objects.function_object import FunctionObject2D
 
     ax = _axes(ax)
     if isinstance(shape, FunctionObject2D):

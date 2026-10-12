@@ -6,10 +6,10 @@ from operator import add, sub
 
 import cunumpy as xp
 
-from .._types import Array, ConfigValue
-from ..point import Point2D
-from ..pointlist import PointList
-from ..shapes import Shape2D, _component_major
+from simgeometry._types import Array, ConfigValue
+from simgeometry.point import Point2D
+from simgeometry.pointlist import PointList
+from simgeometry.shapes import Shape2D, _component_major
 
 
 class Rectangle(Shape2D):

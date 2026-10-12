@@ -6,8 +6,8 @@ from typing import Callable
 
 import cunumpy as xp
 
-from .._types import Array, BoundsLike, ConfigValue
-from ..shapes import Shape2D, Shape3D
+from simgeometry._types import Array, BoundsLike, ConfigValue
+from simgeometry.shapes import Shape2D, Shape3D
 
 
 class FunctionObject2D(Shape2D):

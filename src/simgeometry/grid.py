@@ -7,9 +7,9 @@ import numpy as np
 from maybempi import MPI
 from numpy import ndarray
 
-from ._normalize import ensure_dim_tuple
-from ._types import Array, ConfigValue, Printable
-from .boundingbox import BoundingBox
+from simgeometry._normalize import ensure_dim_tuple
+from simgeometry._types import Array, ConfigValue, Printable
+from simgeometry.boundingbox import BoundingBox
 
 
 class Grid(BoundingBox):

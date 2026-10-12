@@ -8,9 +8,9 @@ from typing import Any
 import cunumpy as xp
 import numpy as np
 
-from ._types import Array
-from .boundingbox import BoundingBox
-from .grid import Grid
+from simgeometry._types import Array
+from simgeometry.boundingbox import BoundingBox
+from simgeometry.grid import Grid
 
 
 def _component_major(points: Array, ndim: int) -> Array:
@@ -238,7 +238,7 @@ class Shape2D(Shape):
 
         Keyword arguments style the polygons (``facecolor``, ``alpha``, ...).
         """
-        from .plotting import draw_shape
+        from simgeometry.plotting import draw_shape
 
         return draw_shape(self, ax=ax, **kwargs)
 

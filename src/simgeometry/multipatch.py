@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from ._types import ConfigValue
+from simgeometry._types import ConfigValue
 
 
 @dataclass

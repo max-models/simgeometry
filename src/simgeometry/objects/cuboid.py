@@ -6,8 +6,8 @@ from operator import add, sub
 
 import cunumpy as xp
 
-from .._types import Array, BoundsLike, ConfigValue
-from ..shapes import Shape3D, _component_major
+from simgeometry._types import Array, BoundsLike, ConfigValue
+from simgeometry.shapes import Shape3D, _component_major
 
 
 class Cuboid(Shape3D):

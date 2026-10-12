@@ -5,10 +5,10 @@ from __future__ import annotations
 import cunumpy as xp
 from maybempi import MPI
 
-from ._bounds import Bounds
-from ._normalize import ensure_dim_tuple
-from ._types import Array, ConfigValue
-from .domain_decomposition import DomainDecomposition
+from simgeometry._bounds import Bounds
+from simgeometry._normalize import ensure_dim_tuple
+from simgeometry._types import Array, ConfigValue
+from simgeometry.domain_decomposition import DomainDecomposition
 
 
 class BoundingBox:

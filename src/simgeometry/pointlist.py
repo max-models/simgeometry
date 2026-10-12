@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .point import Point
+from simgeometry.point import Point
 
 
 class PointList:

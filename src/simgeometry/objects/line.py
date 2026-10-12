@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import cunumpy as xp
 
-from .._types import Array, BoundsLike, ConfigValue
-from ..shapes import Shape1D, _component_major
+from simgeometry._types import Array, BoundsLike, ConfigValue
+from simgeometry.shapes import Shape1D, _component_major
 
 
 class Line(Shape1D):

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import cunumpy as xp
 
-from .._types import Array, ConfigValue, Vertices2DLike
-from ..point import Point2D
-from ..pointlist import PointList
-from ..shapes import Shape2D, _component_major
-from ..utils import vertices_to_bounds
+from simgeometry._types import Array, ConfigValue, Vertices2DLike
+from simgeometry.point import Point2D
+from simgeometry.pointlist import PointList
+from simgeometry.shapes import Shape2D, _component_major
+from simgeometry.utils import vertices_to_bounds
 
 
 class Triangle(Shape2D):

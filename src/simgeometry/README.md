@@ -3,7 +3,7 @@
 Domain, grid, shape, and decomposition primitives for simulation geometry.
 
 The package uses only NumPy, cunumpy, maybempi, and mpiarray outside the
-standard library. Internal imports are relative.
+standard library. Internal imports use the `simgeometry` package name.
 Matplotlib is needed only when calling `Shape2D.plot` or
 `SimulationDomain.plot`.
 

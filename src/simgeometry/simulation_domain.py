@@ -7,11 +7,11 @@ from typing import Any
 import cunumpy as xp
 from maybempi import MPI
 
-from ._particle_boundaries import apply_particle_boundaries
-from ._types import Array, ConfigValue
-from .boundingbox import BoundingBox
-from .grid import Grid
-from .shapes import Shape
+from simgeometry._particle_boundaries import apply_particle_boundaries
+from simgeometry._types import Array, ConfigValue
+from simgeometry.boundingbox import BoundingBox
+from simgeometry.grid import Grid
+from simgeometry.shapes import Shape
 
 # The particle boundaries ``apply_bc_arrays`` knows.
 _PARTICLE_BC_TYPES = ("kill", "reflect", "periodic", "reinject")
@@ -118,7 +118,7 @@ class SimulationDomain(BoundingBox):
         Keyword arguments style the outline (``color``, ``linewidth``, ...).
         Returns the axes. Draw a field first with ``field.plot(ax=ax)``.
         """
-        from .plotting import draw_domain
+        from simgeometry.plotting import draw_domain
 
         return draw_domain(self, ax=ax, show_grid=show_grid, objects=objects, **kwargs)
 

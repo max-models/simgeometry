@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._types import Array
+from simgeometry._types import Array
 
 
 class Point:

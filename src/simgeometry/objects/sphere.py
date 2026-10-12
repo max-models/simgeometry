@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import cunumpy as xp
 
-from .._types import Array, ConfigValue
-from ..shapes import Shape3D, _component_major
+from simgeometry._types import Array, ConfigValue
+from simgeometry.shapes import Shape3D, _component_major
 
 
 class Sphere(Shape3D):
