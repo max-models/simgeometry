@@ -1,26 +1,26 @@
 ---
 title: Quickstart
-description: Run the command line entry point of template-python.
+description: Run the command line entry point of simgeometry.
 ---
 
-First, ensure that `template-python` is [installed](/template-python/getting-started/installation/).
+First, ensure that `simgeometry` is [installed](/simgeometry/getting-started/installation/).
 
 ## Basic usage
 
 After installation, you can run the application with:
 
 ```bash
-template-python
+simgeometry
 ```
 
-which calls `app.main.main` and prints a greeting.
+which calls `simgeometry.main.main` and prints a greeting.
 
 ## Use the package from Python
 
 ```python
-from app.main import main
+from simgeometry.main import main
 
 main()
 ```
 
-See the [API reference](/template-python/api/app/) for every module and function.
+See the [API reference](/simgeometry/api/simgeometry/) for every module and function.

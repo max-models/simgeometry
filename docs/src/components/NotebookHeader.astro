@@ -13,7 +13,7 @@ export interface Props {
 }
 const { download, source, status = 'executed' } = Astro.props;
 const filename = download.split('/').at(-1) ?? 'tutorial.ipynb';
-const github = `https://github.com/max-models/template-python/blob/devel/${source}`;
+const github = `https://github.com/max-models/simgeometry/blob/devel/${source}`;
 const notes = {
 	executed: 'Run when the site was built.',
 	'not run': 'Not run for this build: the outputs are missing.',
