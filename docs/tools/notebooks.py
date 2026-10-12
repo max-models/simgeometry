@@ -305,6 +305,9 @@ def convert_notebook(source: Path, executed: Path | None, order: int) -> Page:
     import nbformat
 
     slug = slug_of(source)
+    sidebar_order = nbformat.read(source, as_version=4).metadata.get(
+        "docs_order", order
+    )
     nb = nbformat.read(executed or source, as_version=4)
     page = Page(slug)
     shutil.rmtree(page.public, ignore_errors=True)
@@ -353,7 +356,7 @@ def convert_notebook(source: Path, executed: Path | None, order: int) -> Page:
         f"title: {_yaml_string(title)}",
         f"description: {_yaml_string(description or title)}",
         "sidebar:",
-        f"  order: {order}",
+        f"  order: {sidebar_order}",
         "---",
     ]
     header = (

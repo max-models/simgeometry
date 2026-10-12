@@ -16,8 +16,8 @@ mask = circle.node_mask(grid)
 
 `mask` marks the grid nodes inside the circle.
 
-Continue with [grids and coordinates](/simgeometry/getting-started/grids/) to
+Continue with [grids and coordinates](/simgeometry/tutorials/grids-and-coordinates/) to
 understand node spacing and periodic axes, or [shapes and node
-masks](/simgeometry/getting-started/shapes/) for point queries and index lists.
+masks](/simgeometry/tutorials/shapes-and-node-masks/) for point queries and index lists.
 For MPI layouts and multiple patches, see [parallel and multipatch
-grids](/simgeometry/getting-started/parallel-and-patches/).
+grids](/simgeometry/tutorials/parallel-and-multipatch-grids/).

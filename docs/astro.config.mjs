@@ -67,18 +67,11 @@ export default defineConfig({
 					items: [
 						{ label: 'Installation', slug: 'getting-started/installation' },
 						{ label: 'Quickstart', slug: 'getting-started/quickstart' },
-						{ label: 'Grids and coordinates', slug: 'getting-started/grids' },
-						{ label: 'Shapes and node masks', slug: 'getting-started/shapes' },
-						{ label: 'Parallel and multipatch grids', slug: 'getting-started/parallel-and-patches' },
 					],
 				},
 				{
 					label: 'Tutorials',
 					items: [{ autogenerate: { directory: 'tutorials' } }],
-				},
-				{
-					label: 'Full examples',
-					items: [{ autogenerate: { directory: 'full-examples' } }],
 				},
 				{
 					label: 'Development',

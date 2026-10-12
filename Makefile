@@ -5,7 +5,7 @@ NOTEBOOKS = $(PYTHON) docs/tools/notebooks.py
 DOCS_ENV = DOCS_PYTHON=$(shell $(PYTHON) -c "import sys; print(sys.executable)")
 FORCE ?=
 
-.PHONY: help install test lint readme readme-check docs-install docs-notebooks docs-examples docs-dev docs-build docs-preview docs-clean
+.PHONY: help install test lint readme readme-check docs-install docs-notebooks docs-dev docs-build docs-preview docs-clean
 
 help:  ## list the targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -37,17 +37,12 @@ docs-notebooks:  ## execute the changed tutorials and convert all of them (FORCE
 	$(NOTEBOOKS) execute $(if $(FORCE),--force,)
 	$(NOTEBOOKS) convert
 
-docs-examples:  ## run full Python examples and generate pages with their plots
-	$(PYTHON) docs/tools/examples.py
-
 docs-dev:  ## live preview at http://localhost:4321/simgeometry/
 	$(NOTEBOOKS) convert
-	$(PYTHON) docs/tools/examples.py
 	cd docs && $(DOCS_ENV) DOCS_VALIDATE_LINKS=false npm run dev
 
 docs-build:  ## the static site in docs/dist, as in CI
 	$(NOTEBOOKS) convert
-	$(PYTHON) docs/tools/examples.py
 	cd docs && npm run check:mdx && $(DOCS_ENV) npm run build
 
 docs-preview:  ## serve docs/dist
@@ -55,5 +50,4 @@ docs-preview:  ## serve docs/dist
 
 docs-clean:  ## remove generated pages, assets and build output
 	$(NOTEBOOKS) clean
-	rm -rf docs/src/content/docs/full-examples docs/public/full-examples
 	rm -rf docs/dist docs/.astro
