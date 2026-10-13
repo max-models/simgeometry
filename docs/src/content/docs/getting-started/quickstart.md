@@ -21,3 +21,17 @@ understand node spacing and periodic axes, or [shapes and node
 masks](/simgeometry/tutorials/shapes-and-node-masks/) for point queries and index lists.
 For MPI layouts and multiple patches, see [parallel and multipatch
 grids](/simgeometry/tutorials/parallel-and-multipatch-grids/).
+
+
+With `simgeometry[plot]`, inspect objects and sections directly:
+
+```python
+from simgeometry import Sphere
+
+shell = Sphere((0, 0, 0), 1) - Sphere((0, 0, 0), 0.4)
+shell.show_3d(opacity=0.6)
+shell.slice(z=0.2).show()
+```
+
+See [Geometry inspection and queries](/simgeometry/getting-started/geometry-api/)
+for coordinate conventions, accuracy, return values, and optional dependencies.

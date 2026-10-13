@@ -118,9 +118,65 @@ class SimulationDomain(BoundingBox):
         Keyword arguments style the outline (``color``, ``linewidth``, ...).
         Returns the axes. Draw a field first with ``field.plot(ax=ax)``.
         """
+        if self.ndim == 3 or any(axis in kwargs for axis in ("x", "y", "z")):
+            from simgeometry.collection import GeometryCollection
+
+            geometry = (
+                self.geometry
+                if objects
+                else GeometryCollection({}, bounds=(self.lower_bound, self.upper_bound))
+            )
+            return geometry.show(
+                ax=ax, grid=self.grid if show_grid else None, display=False, **kwargs
+            )
         from simgeometry.plotting import draw_domain
 
         return draw_domain(self, ax=ax, show_grid=show_grid, objects=objects, **kwargs)
+
+    @property
+    def geometry(self):
+        """Named geometry view using the domain bounds and current objects."""
+        from simgeometry.collection import GeometryCollection
+
+        return GeometryCollection(
+            self.objects, bounds=(self.lower_bound, self.upper_bound)
+        )
+
+    def evaluate(self, *args, **kwargs):
+        """Evaluate object labels on the domain grid or requested coordinates."""
+        if "grid" not in kwargs and "bounds" not in kwargs:
+            kwargs["grid"] = self.grid
+        return self.geometry.evaluate(*args, **kwargs)
+
+    def slice(self, **kwargs):
+        """Return a queryable section through the domain objects."""
+        return self.geometry.slice(**kwargs)
+
+    def show(self, **kwargs):
+        """Display objects, optionally with grid lines or a coordinate slice."""
+        if kwargs.get("grid") is True:
+            kwargs["grid"] = self.grid
+        return self.geometry.show(**kwargs)
+
+    def show_3d(self, **kwargs):
+        """Display the domain objects as 3D surfaces."""
+        if kwargs.get("grid") is True:
+            kwargs["grid"] = self.grid
+        return self.geometry.show_3d(**kwargs)
+
+    def cut_edges(self, grid=None, **kwargs):
+        """Geometry of object intersections with grid edges, without clamping."""
+        return self.geometry.cut_edges(self.grid if grid is None else grid, **kwargs)
+
+    def diagnose(self, grid=None, **kwargs):
+        """Inspect object overlaps and resolution on the domain grid."""
+        return self.geometry.diagnose(self.grid if grid is None else grid, **kwargs)
+
+    def cell_fractions(self, grid=None, **kwargs):
+        """Approximate solid volume and face-area fractions on the domain grid."""
+        return self.geometry.cell_fractions(
+            self.grid if grid is None else grid, **kwargs
+        )
 
     @property
     def bcs_field(self) -> Any | None:

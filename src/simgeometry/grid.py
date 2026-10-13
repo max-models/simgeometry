@@ -89,6 +89,20 @@ class Grid(BoundingBox):
             n + 2 * self._num_ghost_points for n in self._num_gridpoints_local
         )
 
+    def show(self, **kwargs):
+        """Display grid lines and optional nodes, or an axis-aligned slice."""
+        from simgeometry.collection import GeometryCollection
+
+        geometry = GeometryCollection({}, bounds=(self.lower_bound, self.upper_bound))
+        return geometry.show(grid=self, labels=False, **kwargs)
+
+    def show_3d(self, **kwargs):
+        """Display a three-dimensional grid and optional nodes."""
+        from simgeometry.collection import GeometryCollection
+
+        geometry = GeometryCollection({}, bounds=(self.lower_bound, self.upper_bound))
+        return geometry.show_3d(grid=self, labels=False, **kwargs)
+
     @property
     def indices(self) -> list[tuple[int, int]]:
         """Return the indices."""

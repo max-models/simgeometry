@@ -16,7 +16,8 @@ pip install simgeometry
 
 For development, install this checkout with `pip install -e '.[test]'`.
 NumPy, cunumpy, maybempi, and mpiarray are runtime dependencies. Matplotlib is
-optional and used only by the plotting methods (`pip install simgeometry[plot]`).
+optional. Install `simgeometry[plot]` for plotting, labelled evaluation and surface
+meshing, or `simgeometry[interactive]` for interactive 3D clipping with PyVista.
 Install `simgeometry[mpi]` for MPI, `simgeometry[pyccel]` for compiled CPU
 containment kernels, or `simgeometry[gpu]` for CUDA.
 
@@ -35,6 +36,23 @@ mask = boundary.node_mask(grid)
 `get_bc(dir=..., side=...).bc_type` interface. Applications may supply a seeded
 random function with `BoundingBox.random` and an accelerated particle boundary
 implementation with `SimulationDomain.boundary_kernel`.
+
+## Inspect, slice, and compose
+
+```python
+from simgeometry import Sphere
+
+shell = Sphere((0, 0, 0), 1) - Sphere((0, 0, 0), 0.4)
+shell.show_3d(opacity=0.6)
+shell.slice(z=0.2).show()
+inside = shell.evaluate(x=[0, 0.8], y=0, z=0)
+```
+
+Shapes support named collections, Boolean operations, affine transforms, surface
+queries, point sampling, mesh export, cut-edge geometry and approximate cell/face
+fractions. See the [executed tutorials](https://max-models.github.io/simgeometry/tutorials/)
+and [API guide](https://max-models.github.io/simgeometry/getting-started/geometry-api/)
+for examples and the accuracy limits of sampled operations.
 
 ## Development
 

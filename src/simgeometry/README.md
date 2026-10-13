@@ -4,8 +4,9 @@ Domain, grid, shape, and decomposition primitives for simulation geometry.
 
 The package uses only NumPy, cunumpy, maybempi, and mpiarray outside the
 standard library. Internal imports use the `simgeometry` package name.
-Matplotlib is needed only when calling `Shape2D.plot` or
-`SimulationDomain.plot`.
+Optional extras provide labelled evaluation (`evaluate`), sampled meshes (`mesh`),
+Matplotlib views (`plot`), and a PyVista viewer (`interactive`). Dependencies are
+loaded only when the corresponding operations are called.
 
 `SimulationDomain` accepts boundary-condition objects through their public
 `get_bc(dir=..., side=...).bc_type` interface. Its default particle-boundary
@@ -27,6 +28,13 @@ values; applications can configure their own seeded stream.
 - `shapes.py` - Shapes helpers for geometry, grids, and simulation domains.
 - `simulation_domain.py` - Simulation domain helpers for geometry, grids, and simulation domains.
 - `utils.py` - Utils helpers for geometry, grids, and simulation domains.
+
+The shared `GeometryAPI` adds sections, transforms, Boolean operations, plotting,
+evaluation, surface queries, sampling and export. `GeometryCollection` assigns
+names and overlap precedence. `cut_edges` owns solver-independent intersections;
+`fractions` estimates cell/face occupancy. Picnic owns stencil coefficients and
+its minimum-distance regularization. Tutorials live in `tutorials/` and are
+executed into the documentation site.
 
 ## Subpackages
 

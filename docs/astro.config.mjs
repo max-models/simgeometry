@@ -67,6 +67,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Installation', slug: 'getting-started/installation' },
 						{ label: 'Quickstart', slug: 'getting-started/quickstart' },
+						{ label: 'Geometry inspection and queries', slug: 'getting-started/geometry-api' },
 					],
 				},
 				{

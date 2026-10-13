@@ -23,7 +23,10 @@ Import the package with `from simgeometry.grid import Grid`.
 
 | Extra  | Installs |
 | ------ | -------- |
-| `plot` | Matplotlib for shape and domain plotting |
+| `evaluate` | xarray for labelled coordinate samples |
+| `mesh` | scikit-image for contour and surface extraction |
+| `plot` | Matplotlib plus the `evaluate` and `mesh` extras |
+| `interactive` | PyVista plus the `plot` extra for interactive 3D clipping |
 | `mpi` | mpi4py for MPI runs |
 | `test` | pytest, pytest-cov, and mpi4py |
 | `docs` | the notebook runner, Matplotlib, and griffe for the API reference |

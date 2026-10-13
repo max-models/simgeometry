@@ -9,6 +9,7 @@ import cunumpy as xp
 import numpy as np
 
 from simgeometry._types import Array
+from simgeometry.api import GeometryAPI
 from simgeometry.boundingbox import BoundingBox
 from simgeometry.grid import Grid
 
@@ -21,7 +22,7 @@ def _component_major(points: Array, ndim: int) -> Array:
     return points
 
 
-class Shape(ABC):
+class Shape(GeometryAPI, ABC):
     """Define the base interface for geometric shapes.
 
     A shape created with ``inverted=True`` covers everything *except* its
@@ -238,6 +239,11 @@ class Shape2D(Shape):
 
         Keyword arguments style the polygons (``facecolor``, ``alpha``, ...).
         """
+        if any(
+            key in kwargs
+            for key in ("x", "y", "z", "grid", "nodes", "normals", "resolution")
+        ):
+            return self.show(ax=ax, display=False, **kwargs)
         from simgeometry.plotting import draw_shape
 
         return draw_shape(self, ax=ax, **kwargs)
