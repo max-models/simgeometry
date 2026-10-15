@@ -283,3 +283,26 @@ class TestFunctionObject3D:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_plot_with_a_resolution_draws_a_mask():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    def inside_box(coords) -> bool:
+        x, y = coords
+        return 0.25 <= x <= 0.75 and 0.25 <= y <= 0.75
+
+    shape = FunctionObject2D(
+        func=inside_box, lower_bound=(0.0, 0.0), upper_bound=(1.0, 1.0)
+    )
+    _, ax = plt.subplots()
+    try:
+        assert shape.plot(ax=ax, resolution=32) is ax
+        (image,) = ax.images
+        mask = np.ma.getmaskarray(image.get_array())
+        assert image.get_array().shape == (32, 32)
+        assert 0 < (~mask).sum() < mask.size
+    finally:
+        plt.close("all")

@@ -73,9 +73,11 @@ def bracketed_edge_geometry(
         points = points.copy()
         for axis, flag in enumerate(periodic):
             if flag:
-                points[axis] = (
-                    lower[axis] + (points[axis] - lower[axis]) % periods[axis]
-                )
+                offset = (points[axis] - lower[axis]) % periods[axis]
+                # a node's image across the face, built as node + step, can land a
+                # rounding error short of the period; it is the first node
+                offset[periods[axis] - offset <= 1e-9 * periods[axis]] = 0.0
+                points[axis] = lower[axis] + offset
         return points
 
     fractions, cut = {}, np.zeros(shape, dtype=bool)

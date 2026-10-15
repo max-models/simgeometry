@@ -179,7 +179,7 @@ class Polygon(Shape2D):
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
         inside = xp.empty(points.shape[1], dtype=bool)
         contains_polygon_2d(
-            xp.ascontiguousarray(points),
+            xp.kernels.as_kernel_array(points, like=points, dtype=float),
             inside,
             vertices,
             0,

@@ -167,3 +167,16 @@ class TestPolygon:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_contains_points_takes_one_point_selected_by_a_mask():
+    # nodes[:, mask] with one True has shape (2, 1) and strides (8, 16): NumPy
+    # calls it C-contiguous, the compiled kernel needs C strides
+    polygon = Polygon(vertices=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)])
+    nodes = np.zeros((2, 5, 4))
+    nodes[:, 2, 1] = (0.25, 0.25)
+    mask = np.zeros((5, 4), dtype=bool)
+    mask[2, 1] = True
+    point = nodes[:, mask]
+    assert point.strides == (8, 16)
+    assert bool(xp.to_numpy(polygon.contains_points(point))[0])
