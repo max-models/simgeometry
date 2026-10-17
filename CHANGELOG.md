@@ -11,6 +11,8 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   counter-clockwise `(2, n)` arrays, with edges refined to at most `max_spacing`, or graded
   by a spacing function of position; also on transformed 2D shapes. Plotting draws shapes
   from it.
+- Tutorial "Boundary outlines": uniform and graded outlines, their convergence, and
+  outlines of transformed shapes.
 
 ### Removed
 
