@@ -180,3 +180,11 @@ def test_contains_points_takes_one_point_selected_by_a_mask():
     point = nodes[:, mask]
     assert point.strides == (8, 16)
     assert bool(xp.to_numpy(polygon.contains_points(point))[0])
+
+
+def test_contains_points_accepts_non_contiguous_vertices() -> None:
+    """Vertices given as the transpose of a (2, n) array are not C-ordered."""
+    corners = np.array([[0.0, 3.0, 3.0, 1.0, 1.0, 0.0], [0.0, 0.0, 1.0, 1.0, 3.0, 3.0]])
+    polygon = Polygon(vertices=corners.T)
+    inside = polygon.contains_points(np.array([[0.5, 2.0, 2.0], [2.0, 0.5, 2.0]]))
+    assert list(np.asarray(inside)) == [True, True, False]

@@ -129,6 +129,15 @@ provides the interactive clipping behavior.
 
 ## Solver integration
 
+`shape.outlines(max_spacing=...)` returns the boundary of a 2D shape as closed,
+counter-clockwise `(2, n)` loops, one per piece (an `Aperture2D` has two), with no
+edge longer than `max_spacing`; circles put every vertex on the circle. `max_spacing` can
+also be a function of `(2, m)` points returning `(m,)` spacings, which grades the vertices
+(fine near an aperture tip, coarse far from it); see the
+[boundary outlines tutorial](/simgeometry/tutorials/boundary-outlines/). Boundary-element
+and panel solvers can discretise electrodes and walls from it directly. Boolean shapes have
+no outline; transformed 2D shapes transform their source's.
+
 `simgeometry.cut_edges.bracketed_edge_geometry()` is the batched geometry path for
 Picnic's Shortley–Weller stencil. It visits fluid nodes with solid neighbours and
 assumes a single crossing in each bracket. Fractions have no numerical lower clamp.

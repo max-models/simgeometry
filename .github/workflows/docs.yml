@@ -29,10 +29,10 @@ jobs:
         tutorials/index.html
         tutorials/grids-and-coordinates/index.html
         tutorials/shapes-and-node-masks/index.html
-        tutorials/parallel-and-multipatch-grids/index.html
+        tutorials/parallel-grids/index.html
         api/simgeometry/index.html
         api/simgeometry/grid/index.html
         tutorials/grids-and-coordinates/grids_and_coordinates.ipynb
         tutorials/shapes-and-node-masks/shapes_and_node_masks.ipynb
-        tutorials/parallel-and-multipatch-grids/parallel_and_multipatch_grids.ipynb
+        tutorials/parallel-grids/parallel_grids.ipynb
         tutorials/shapes-and-node-masks/1.png

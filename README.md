@@ -2,9 +2,9 @@
 
 
 Geometry primitives for numerical simulations: bounded domains,
-structured grids, MPI domain decomposition, multipatch geometry, and 1D,
-2D, and 3D shapes. Box, ball, and polygon containment have NumPy,
-Pyccel, CUDA, and Metal implementations. Originally developed for
+structured grids, MPI domain decomposition, and 1D, 2D, and 3D shapes.
+Box, ball, and polygon containment have NumPy, Pyccel, CUDA, and Metal
+implementations. Originally developed for
 [Picnic](https://github.com/max-models/picnic).
 
 ## Install

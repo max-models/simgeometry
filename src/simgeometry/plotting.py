@@ -103,13 +103,7 @@ def draw_shape(
         "zorder": ZORDER_OBJECT,
         **kwargs,
     }
-    pointlists = shape.get_vertices()
-    if not isinstance(pointlists, list):
-        pointlists = [pointlists]
-    polygons = [
-        np.asarray([[float(v[0]), float(v[1])] for v in pointlist.get_coordinates()])
-        for pointlist in pointlists
-    ]
+    polygons = [loop.T for loop in shape.outlines()]
     if not shape.inverted:
         for vertices in polygons:
             ax.add_patch(Polygon(vertices, closed=True, **style))
