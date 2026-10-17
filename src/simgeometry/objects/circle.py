@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import cunumpy as xp
+import numpy as np
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
 from simgeometry.point import Point2D
 from simgeometry.pointlist import PointList
-from simgeometry.shapes import Shape2D, _component_major
+from simgeometry.shapes import Shape2D, Spacing, _component_major, _distribute
 
 
 class Circle(Shape2D):
@@ -97,6 +98,21 @@ class Circle(Shape2D):
         upper_bound = tuple(x + self.radius for x in self.midpoint)
 
         self.set_bounding_box(lower_bound, upper_bound)
+
+    def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
+        """One loop of vertices on the circle, at most ``max_spacing`` apart (100 by default)."""
+        x0, y0 = (float(c) for c in self.midpoint)
+
+        def curve(t: np.ndarray) -> np.ndarray:
+            theta = 2 * np.pi * t
+            return np.stack(
+                (x0 + self.radius * np.cos(theta), y0 + self.radius * np.sin(theta))
+            )
+
+        if max_spacing is None:
+            return [curve(np.arange(100) / 100)]
+        perimeter = 2 * np.pi * self.radius
+        return [curve(_distribute(curve, perimeter, max_spacing, min_points=3))]
 
     def get_vertices(self, num_vertices: int = 100) -> ConfigValue:
         """

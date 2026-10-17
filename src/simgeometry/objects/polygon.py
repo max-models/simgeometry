@@ -174,12 +174,12 @@ class Polygon(Shape2D):
     def contains_points(self, points: ndarray) -> ndarray:
         """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
         points = xp.asarray(_component_major(points, 2), dtype=float)
-        vertices = xp.asarray(self._vertices, dtype=float)
+        vertices = xp.kernels.as_kernel_array(self._vertices, like=points, dtype=float)
         lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
         inside = xp.empty(points.shape[1], dtype=bool)
         contains_polygon_2d(
-            xp.ascontiguousarray(points),
+            xp.kernels.as_kernel_array(points, like=points, dtype=float),
             inside,
             vertices,
             0,

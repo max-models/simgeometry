@@ -90,6 +90,32 @@ class TransformedShape(Shape):
     def contains(self, coords):
         return self.source.contains(self.inverse @ (np.asarray(coords) - self.offset))
 
+    def outlines(self, max_spacing=None):
+        """The source's outline loops, transformed (2D only); see ``Shape2D.outlines``.
+
+        The source is refined to ``max_spacing`` divided by the transform's largest
+        stretch, so the transformed vertices are at most ``max_spacing`` apart.
+        """
+        if self.ndim != 2 or not hasattr(self.source, "outlines"):
+            raise NotImplementedError("outlines() needs a 2D source with outlines")
+        stretch = float(np.linalg.norm(self.matrix, 2))
+        if max_spacing is None:
+            local = None
+        elif callable(max_spacing):
+
+            def local(points):
+                world = self.matrix @ points + self.offset[:, None]
+                return np.asarray(max_spacing(world), dtype=float) / stretch
+
+        else:
+            local = max_spacing / stretch
+        flip = np.linalg.det(self.matrix) < 0
+        loops = []
+        for loop in self.source.outlines(local):
+            loop = self.matrix @ loop + self.offset[:, None]
+            loops.append(loop[:, ::-1] if flip else loop)
+        return loops
+
     @property
     def named_objects(self):
         if not hasattr(self.source, "named_objects"):

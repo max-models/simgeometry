@@ -26,9 +26,12 @@ class Aperture2D(Shape2D):
         Initialize a 2D aperture object.
 
         Parameters:
-            axis (str): Axis along which the aperture is defined ('x' or 'y').
-            position (float): Position along the other axis (probably the y-axis).
-            vertices (list or tuple): List of tuples, each representing a vertex (r, z) in cylindrical coordinates.
+            axis (int): Axis along which the aperture is defined (0 or 1). Stored
+                only: the plates are always built with the beam along x.
+            position (float): The aperture's centre line, ``y = position``.
+            vertices (list or tuple): The plate profile as ``(axial, radial)``
+                vertices: each plate is the polygon through
+                ``(axial, position ± radial)``.
             bc (optional): Boundary condition information.
             inverted (bool, optional): Cover everything except the two plates.
         """
@@ -75,7 +78,7 @@ class Aperture2D(Shape2D):
     @axis.setter
     def axis(self, value: int) -> None:
         """Set the axis."""
-        assert value in [0, 1], "Axis must be one of 'x' or 'y'."
+        assert value in [0, 1], "Axis must be one of 0 or 1."
         self._axis = value
 
     def get_vertices(self) -> list[PointList]:

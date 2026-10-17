@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import cunumpy as xp
 
@@ -95,6 +95,20 @@ class FunctionObject2D(Shape2D):
     def get_vertices(self) -> list:
         """Return an empty list; vertices cannot be derived from an arbitrary function."""
         return []
+
+    def plot(self, ax: Any = None, **kwargs: Any) -> Any:
+        """Draw the object as a sampled mask into ``ax`` and return the axes.
+
+        ``resolution`` (samples per axis) and ``bounds`` set the sampling of the
+        mask, other keyword arguments style the image. With an inspection option
+        (``x``, ``y``, ``z``, ``grid``, ``nodes``, ``normals``) this is
+        :meth:`Shape2D.plot`.
+        """
+        if any(key in kwargs for key in ("x", "y", "z", "grid", "nodes", "normals")):
+            return super().plot(ax=ax, **kwargs)
+        from simgeometry.plotting import draw_shape
+
+        return draw_shape(self, ax=ax, **kwargs)
 
 
 class FunctionObject3D(Shape3D):

@@ -174,3 +174,9 @@ junit/
 # Quarto
 .quarto/
 README_files/
+
+# Pyccel build artefacts and lock files (pyccel compile writes the locks to
+# the directory it runs from)
+__pyccel__/
+.lock_acquisition.lock
+stc.lock

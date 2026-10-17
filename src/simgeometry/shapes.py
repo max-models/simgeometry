@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 import cunumpy as xp
@@ -20,6 +21,65 @@ def _component_major(points: Array, ndim: int) -> Array:
     if points.ndim != 2 or points.shape[0] != ndim:
         raise ValueError(f"Expected points with shape ({ndim}, n), got {points.shape}")
     return points
+
+
+def _signed_area(loop: np.ndarray) -> float:
+    """Shoelace area of a ``(2, n)`` loop: positive when counter-clockwise."""
+    x, y = loop
+    return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+
+#: A spacing: a length, or a function of ``(2, m)`` points returning ``(m,)`` lengths.
+Spacing = float | Callable[[np.ndarray], np.ndarray]
+
+
+def _pieces(length: float, max_spacing: float) -> int:
+    """Number of equal pieces that keeps each one at most ``max_spacing`` long.
+
+    The tolerance keeps ``length / (length / n)`` from rounding up to ``n + 1``.
+    """
+    return max(1, int(np.ceil(length / max_spacing * (1 - 1e-12))))
+
+
+def _distribute(
+    curve: Callable[[np.ndarray], np.ndarray],
+    length: float,
+    max_spacing: Spacing,
+    *,
+    min_points: int = 1,
+    samples: int = 256,
+) -> np.ndarray:
+    """Parameters in ``[0, 1)`` of points along ``curve`` at about ``max_spacing`` apart.
+
+    ``curve`` maps parameters ``(m,)`` in ``[0, 1]`` to ``(2, m)`` points at uniform
+    arc length, ``length`` long in total. A constant spacing gives equal pieces of at most
+    that length; a callable one places points at equal steps of the integral of
+    ``1 / spacing`` along the curve, sampled at ``samples`` intervals.
+    """
+    if not callable(max_spacing):
+        n = max(min_points, _pieces(length, max_spacing))
+        return np.arange(n) / n
+    t = np.linspace(0.0, 1.0, samples + 1)
+    spacing = np.broadcast_to(np.asarray(max_spacing(curve(t)), dtype=float), t.shape)
+    if not np.all(spacing > 0):
+        raise ValueError("max_spacing must be positive")
+    density = length / spacing
+    cumulative = np.concatenate(
+        ([0.0], np.cumsum(0.5 * (density[1:] + density[:-1]) * np.diff(t)))
+    )
+    n = max(min_points, _pieces(cumulative[-1], 1.0))
+    return np.interp(np.arange(n) / n * cumulative[-1], cumulative, t)
+
+
+def _refine_loop(loop: np.ndarray, max_spacing: Spacing) -> np.ndarray:
+    """Split each edge of a closed ``(2, n)`` loop into pieces of about ``max_spacing``."""
+    pieces = []
+    for a, b in zip(loop.T, np.roll(loop, -1, axis=1).T):
+        length = float(np.hypot(*(b - a)))
+        a, b = a[:, None], b[:, None]
+        t = _distribute(lambda t: a + t * (b - a), length, max_spacing)
+        pieces.append(a + t * (b - a))
+    return np.concatenate(pieces, axis=1)
 
 
 class Shape(GeometryAPI, ABC):
@@ -233,6 +293,47 @@ class Shape2D(Shape):
         Returns:
         bool: True if the coordinates are inside the shape, False otherwise.
         """
+
+    def outlines(self, max_spacing: Spacing | None = None) -> list[np.ndarray]:
+        """Return the closed boundary loops of the shape as ``(2, n)`` host arrays.
+
+        Each loop is counter-clockwise, without repeating its first vertex. A shape
+        made of several pieces (such as :class:`~simgeometry.Aperture2D`'s two
+        plates) has one loop per piece. With ``max_spacing``, edges longer than it
+        are split evenly so that no two consecutive vertices are further apart;
+        curved shapes then place every vertex on the curve. ``max_spacing`` may
+        also be a function of ``(2, m)`` points returning ``(m,)`` spacings, to grade
+        the vertices (finer near a corner, say); the spacing then holds
+        approximately. Inversion does not change the outline.
+        """
+        if (
+            max_spacing is not None
+            and not callable(max_spacing)
+            and not max_spacing > 0
+        ):
+            raise ValueError("max_spacing must be positive")
+        return [
+            loop[:, ::-1] if _signed_area(loop) < 0.0 else loop
+            for loop in self._outline_loops(max_spacing)
+        ]
+
+    def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
+        """The loops through :meth:`get_vertices`, refined; curved shapes override this."""
+        pointlists = self.get_vertices()
+        if not isinstance(pointlists, list):
+            pointlists = [pointlists]
+        loops = [
+            np.array(
+                [
+                    [float(v[0]) for v in pl.get_coordinates()],
+                    [float(v[1]) for v in pl.get_coordinates()],
+                ]
+            )
+            for pl in pointlists
+        ]
+        if max_spacing is None:
+            return loops
+        return [_refine_loop(loop, max_spacing) for loop in loops]
 
     def plot(self, ax: Any = None, **kwargs: Any) -> Any:
         """Draw the shape as filled polygons into ``ax`` and return the axes.

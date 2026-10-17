@@ -13,7 +13,7 @@ from simgeometry import (
     Triangle,
 )
 from simgeometry.cut_edges import bracketed_edge_geometry
-from simgeometry.objects import FunctionObject2D
+from simgeometry.objects import Aperture2D, FunctionObject2D
 from simgeometry.queries import intersection_fractions
 
 
@@ -281,3 +281,23 @@ def test_one_dimensional_section_samples_actual_boundary():
     np.testing.assert_allclose(
         section.signed_distance([[0, 1]]), [-0.8, 0.2], atol=1e-12
     )
+
+
+def test_bracketed_edges_wrap_a_seam_image_short_of_the_period():
+    # y is periodic with period 0.012 and 13 nodes: the last node plus one step
+    # is 0.011999999999999999, the first node's image, not the top of the domain
+    grid = Grid(
+        ndim=2,
+        lower_bound=(0, 0),
+        upper_bound=(0.031, 0.012),
+        num_gridpoints=(32, 13),
+        periodic=(False, True),
+    )
+    assert grid.node_points()[1, 12] + grid.grid_spacing[1] < 0.012
+    aperture = Aperture2D(
+        axis=1,
+        position=0.006,
+        vertices=((0.008, 0.006), (0.0095, 0.002), (0.011, 0.006)),
+    )
+    geometry = bracketed_edge_geometry(grid, [aperture])
+    assert geometry.cut.any()
