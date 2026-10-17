@@ -57,57 +57,43 @@ class TestAperture2D:
         aperture = Aperture2D(axis=0, position=10.0, vertices=vertices)
         assert aperture.zvec == [0, 3, 5]
 
-    def test_get_vertices_lower(self) -> None:
-        """Test getting lower polygon vertices."""
+    def test_outlines_mirror_the_profile_about_the_centre_line(self) -> None:
+        """The lower plate is at ``position - radial``, the upper at ``position + radial``."""
         vertices = ((0, 0), (3, 5), (5, 0))
         aperture = Aperture2D(axis=0, position=10.0, vertices=vertices)
+        lower, upper = aperture.outlines()
+        assert sorted(map(tuple, lower.T.tolist())) == [(0, 10), (3, 5), (5, 10)]
+        assert sorted(map(tuple, upper.T.tolist())) == [(0, 10), (3, 15), (5, 10)]
 
-        lower_vertices = aperture.get_vertices_lower()
-        expected = xp.array(
-            [
-                (0, 10.0),  # z=0, perp=10-0=10
-                (3, 5.0),  # z=3, perp=10-5=5
-                (5, 10.0),  # z=5, perp=10-0=10
-            ],
+    def test_axis_one_runs_the_beam_along_y(self) -> None:
+        """With ``axis=1`` the profile's axial coordinate is y and the plates sit at x."""
+        vertices = ((0, 1), (2, 1), (2, 3), (0, 3))
+        along_x = Aperture2D(axis=0, position=0.5, vertices=vertices)
+        along_y = Aperture2D(axis=1, position=0.5, vertices=vertices)
+        for loop_x, loop_y in zip(along_x.outlines(), along_y.outlines()):
+            assert sorted(map(tuple, loop_y.T.tolist())) == sorted(
+                map(tuple, loop_x[::-1].T.tolist())
+            )
+        assert along_y.contains((2.5, 1.0)) and not along_y.contains((1.0, 2.5))
+        assert along_x.contains((1.0, 2.5)) and not along_x.contains((2.5, 1.0))
+        assert along_y.lower_bound == (-2.5, 0.0)
+        assert along_y.upper_bound == (3.5, 2.0)
+
+    def test_slit_builds_two_rectangular_plates(self) -> None:
+        """``slit`` leaves a gap of twice the half-width between plates of the given size."""
+        slit = Aperture2D.slit(
+            4.0, half_width=0.5, thickness=0.2, length=3.0, position=1.0
         )
-        assert xp.allclose(lower_vertices, expected)
-
-    def test_get_vertices_upper(self) -> None:
-        """Test getting upper polygon vertices."""
-        vertices = ((0, 0), (3, 5), (5, 0))
-        aperture = Aperture2D(axis=0, position=10.0, vertices=vertices)
-
-        upper_vertices = aperture.get_vertices_upper()
-        expected = xp.array(
-            [
-                (0, 10.0),  # z=0, perp=10+0=10
-                (3, 15.0),  # z=3, perp=10+5=15
-                (5, 10.0),  # z=5, perp=10+0=10
-            ],
-        )
-        assert xp.allclose(upper_vertices, expected)
-
-    def test_get_vertices(self) -> None:
-        """Test getting all vertices (both polygons)."""
-        vertices = ((0, 0), (3, 5), (5, 0))
-        aperture = Aperture2D(axis=0, position=10.0, vertices=vertices)
-
-        all_vertices = aperture.get_vertices()
-        assert len(all_vertices) == 2  # Two polygons
-
-        # Each should be a PointList with the vertices
-        lower_verts = all_vertices[0]
-        upper_verts = all_vertices[1]
-
-        # Check coordinates
-        lower_coords = lower_verts.get_coordinates()
-        upper_coords = upper_verts.get_coordinates()
-
-        expected_lower = [(0.0, 10.0), (3.0, 5.0), (5.0, 10.0)]
-        expected_upper = [(0.0, 10.0), (3.0, 15.0), (5.0, 10.0)]
-
-        assert lower_coords == expected_lower
-        assert upper_coords == expected_upper
+        lower, upper = slit.outlines()
+        np.testing.assert_allclose(upper.min(axis=1), [3.9, 1.5])
+        np.testing.assert_allclose(upper.max(axis=1), [4.1, 4.5])
+        np.testing.assert_allclose(lower.min(axis=1), [3.9, -2.5])
+        np.testing.assert_allclose(lower.max(axis=1), [4.1, 0.5])
+        assert slit.contains((4.0, 2.0)) and not slit.contains((4.0, 1.0))
+        vertical = Aperture2D.slit(4.0, 0.5, 0.2, 3.0, axis=1)
+        assert vertical.contains((2.0, 4.0)) and not vertical.contains((0.0, 4.0))
+        with pytest.raises(ValueError, match="positive"):
+            Aperture2D.slit(0.0, 0.5, 0.0, 1.0)
 
     def test_contains_in_lower(self) -> None:
         """Test contains method for points in lower polygon."""

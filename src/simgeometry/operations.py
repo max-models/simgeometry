@@ -8,7 +8,7 @@ from itertools import product
 import cunumpy as xp
 import numpy as np
 
-from simgeometry.shapes import Shape, _component_major
+from simgeometry.shapes import Shape, _component_major, _refine_loop, _signed_area
 
 
 def corners(shape):
@@ -55,6 +55,109 @@ class BooleanShape(Shape):
                 0
             ]
         )
+
+    def outlines(self, max_spacing=None):
+        """The boundary loops of a 2D Boolean shape, as ``(2, n)`` host arrays.
+
+        Loops keep the region on their left: outer boundaries are counter-clockwise
+        and holes clockwise (a plate minus a disc gives one of each). Each operand
+        enters as the polygon through its own ``outlines(max_spacing)``, so a curved
+        operand such as a ``Circle`` is approximated by its inscribed polygon; the
+        clipped loops are then refined to ``max_spacing`` (see ``Shape2D.outlines``).
+        Needs shapely (the ``clip`` extra). Inverted operands, non-2D shapes and
+        operands without outlines raise ``NotImplementedError``.
+        """
+        geometry = _shapely_geometry(self, max_spacing)
+        loops = []
+        for polygon in _polygons(geometry):
+            loops.append(_shapely_ring(polygon.exterior, counter_clockwise=True))
+            loops.extend(
+                _shapely_ring(ring, counter_clockwise=False)
+                for ring in polygon.interiors
+            )
+        loops = [loop for loop in loops if loop.shape[1] >= 3]
+        if max_spacing is None:
+            return loops
+        return [_refine_loop(loop, max_spacing) for loop in loops]
+
+    def boundary_panels(self, max_spacing=None):
+        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        from simgeometry.panels import boundary_panels
+
+        return boundary_panels(self, max_spacing)
+
+
+def _shapely():
+    try:
+        import shapely
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            "Outlines of Boolean shapes need shapely: pip install 'simgeometry[clip]'"
+        ) from exc
+    return shapely
+
+
+def _shapely_geometry(shape, max_spacing):
+    """A shapely geometry of a 2D shape, built from its outline loops."""
+    shapely = _shapely()
+    if shape.ndim != 2:
+        raise NotImplementedError("outlines() is only defined for 2D shapes")
+    if shape.inverted:
+        raise NotImplementedError(
+            "outlines() of a Boolean shape needs bounded operands, not inverted ones"
+        )
+    if isinstance(shape, BooleanShape):
+        left = _shapely_geometry(shape.left, max_spacing)
+        right = _shapely_geometry(shape.right, max_spacing)
+        result = {
+            "union": shapely.union,
+            "intersection": shapely.intersection,
+            "difference": shapely.difference,
+        }[shape.operation](left, right)
+        return shapely.make_valid(result)
+    from simgeometry.objects.function_object import FunctionObject2D
+
+    if isinstance(shape, FunctionObject2D) or not hasattr(shape, "outlines"):
+        raise NotImplementedError(
+            f"{type(shape).__name__} has no outlines to combine in a Boolean shape"
+        )
+    if not getattr(shape, "closed", True):
+        raise NotImplementedError(
+            f"{type(shape).__name__} is an open curve and encloses no area"
+        )
+    outer, holes = [], []
+    for loop in shape.outlines(max_spacing):
+        loop = np.asarray(loop, dtype=float)
+        if loop.shape[1] < 3:
+            continue
+        (outer if _signed_area(loop) > 0 else holes).append(shapely.Polygon(loop.T))
+    geometry = shapely.union_all(outer) if outer else shapely.Polygon()
+    if holes:
+        geometry = shapely.difference(geometry, shapely.union_all(holes))
+    return shapely.make_valid(geometry)
+
+
+def _polygons(geometry):
+    """The nonempty polygons of a shapely geometry, in a deterministic order."""
+    shapely = _shapely()
+    polygons = []
+    for part in shapely.get_parts(geometry):
+        if isinstance(part, shapely.Polygon):
+            if part.area > 0:
+                polygons.append(part)
+        elif isinstance(part, (shapely.MultiPolygon, shapely.GeometryCollection)):
+            polygons.extend(_polygons(part))
+    return sorted(polygons, key=lambda p: (p.bounds[0], p.bounds[1], -p.area))
+
+
+def _shapely_ring(ring, *, counter_clockwise):
+    """A shapely ring as a ``(2, n)`` loop, without repeated vertices."""
+    coords = np.asarray(ring.coords, dtype=float)[:-1]
+    keep = np.any(coords != np.roll(coords, 1, axis=0), axis=1)
+    loop = np.ascontiguousarray(coords[keep].T)
+    if (_signed_area(loop) > 0) != counter_clockwise:
+        loop = np.ascontiguousarray(loop[:, ::-1])
+    return loop
 
 
 class TransformedShape(Shape):
@@ -109,12 +212,29 @@ class TransformedShape(Shape):
 
         else:
             local = max_spacing / stretch
-        flip = np.linalg.det(self.matrix) < 0
+        # a reflection reverses the loops; an open curve keeps its vertex order
+        flip = np.linalg.det(self.matrix) < 0 and self.closed
         loops = []
         for loop in self.source.outlines(local):
             loop = self.matrix @ loop + self.offset[:, None]
             loops.append(loop[:, ::-1] if flip else loop)
         return loops
+
+    @property
+    def closed(self):
+        """Whether the source encloses an area (False for an open curve)."""
+        return getattr(self.source, "closed", True)
+
+    @property
+    def exact_outline(self):
+        """Whether the outline is exact: an affine map keeps a polygon a polygon."""
+        return getattr(self.source, "exact_outline", False)
+
+    def boundary_panels(self, max_spacing=None):
+        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        from simgeometry.panels import boundary_panels
+
+        return boundary_panels(self, max_spacing)
 
     @property
     def named_objects(self):

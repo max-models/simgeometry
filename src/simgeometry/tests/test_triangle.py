@@ -6,7 +6,6 @@ import cunumpy as xp
 import pytest
 
 from simgeometry.objects.triangle import Triangle
-from simgeometry.pointlist import PointList
 
 
 class TestTriangle:
@@ -111,17 +110,12 @@ class TestTriangle:
         assert triangle.lower_bound == (1.0, 2.0)
         assert triangle.upper_bound == (2.0, 3.0)
 
-    def test_get_vertices(self) -> None:
-        """Test getting vertices of the triangle."""
+    def test_outline_is_the_vertices(self) -> None:
+        """The outline of a counter-clockwise triangle is its vertices."""
         vertices = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]
         triangle = Triangle(vertices)
-        verts = triangle.get_vertices()
-
-        assert isinstance(verts, PointList)
-        assert len(verts.points) == 3
-        expected_coords = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]
-        for actual, expected in zip(verts.points, expected_coords):
-            assert actual.coordinates == expected
+        (loop,) = triangle.outlines()
+        np.testing.assert_array_equal(loop, np.asarray(vertices).T)
 
     def test_contains_inside(self) -> None:
         """Test contains method for points inside the triangle."""

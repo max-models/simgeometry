@@ -23,8 +23,8 @@ values; applications can configure their own seeded stream.
 - `plotting.py` - Optional Matplotlib drawing for shapes and domains.
 - `domain_decomposition.py` - The process grid of the MPI ranks (`DomainDecomposition`): neighbours, the physical subdomain and the marker owner of each rank, and `layout()`, the `mpiarray.Layout` of a field on the same grid.
 - `grid.py` - Grid helpers for geometry, grids, and simulation domains.
-- `point.py` - Point helpers for geometry, grids, and simulation domains.
-- `pointlist.py` - Pointlist helpers for geometry, grids, and simulation domains.
+- `crossings.py` - `crossings()`: the first boundary crossing of many segments at once, for particle pushers.
+- `panels.py` - `boundary_panels()`: the straight edges of a 2D outline with lengths and normals, for boundary-element solvers.
 - `shapes.py` - Shapes helpers for geometry, grids, and simulation domains.
 - `simulation_domain.py` - Simulation domain helpers for geometry, grids, and simulation domains.
 - `utils.py` - Utils helpers for geometry, grids, and simulation domains.

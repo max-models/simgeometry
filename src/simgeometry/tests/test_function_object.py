@@ -132,10 +132,11 @@ class TestFunctionObject2D:
         )
         assert obj.func is sentinel
 
-    def test_get_vertices_returns_empty(self) -> None:
-        """get_vertices returns an empty list."""
+    def test_has_no_outline(self) -> None:
+        """A function object has no outline to give."""
         obj = self._make_ring()
-        assert obj.get_vertices() == []
+        with pytest.raises(NotImplementedError, match="no outline"):
+            obj.outlines()
 
     def test_get_indices_in_object(self) -> None:
         """Only grid indices inside the ring are returned."""

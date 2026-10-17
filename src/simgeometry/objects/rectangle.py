@@ -5,15 +5,16 @@ from __future__ import annotations
 from operator import add, sub
 
 import cunumpy as xp
+import numpy as np
 
 from simgeometry._types import Array, ConfigValue
-from simgeometry.point import Point2D
-from simgeometry.pointlist import PointList
 from simgeometry.shapes import Shape2D, _component_major
 
 
 class Rectangle(Shape2D):
     """Represent a rectangular geometry object."""
+
+    exact_outline = True
 
     def __init__(
         self,
@@ -103,20 +104,10 @@ class Rectangle(Shape2D):
 
         self.set_bounding_box(lower_bound, upper_bound)
 
-    def get_vertices(self) -> PointList:
-        """Return the vertices that define the object."""
-        xmin, ymin = self.lower_bound
-        xmax, ymax = self.upper_bound
-
-        point_list = PointList(
-            [
-                Point2D(x=xmin, y=ymin),
-                Point2D(x=xmax, y=ymin),
-                Point2D(x=xmax, y=ymax),
-                Point2D(x=xmin, y=ymax),
-            ],
-        )
-        return point_list
+    def _corner_loops(self) -> list[np.ndarray]:
+        """The four corners as one counter-clockwise ``(2, 4)`` loop."""
+        (xmin, ymin), (xmax, ymax) = self.lower_bound, self.upper_bound
+        return [np.array([[xmin, xmax, xmax, xmin], [ymin, ymin, ymax, ymax]], float)]
 
     def contains(self, coords: Array) -> bool:
         """

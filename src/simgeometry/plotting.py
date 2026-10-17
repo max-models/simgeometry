@@ -103,6 +103,13 @@ def draw_shape(
         "zorder": ZORDER_OBJECT,
         **kwargs,
     }
+    if not getattr(shape, "closed", True):
+        # an open curve: draw its line, there is no area to fill
+        line_style = {"color": style["edgecolor"], "zorder": style["zorder"]}
+        for loop in shape.outlines():
+            ax.plot(*loop, **line_style)
+        ax.autoscale_view()
+        return ax
     polygons = [loop.T for loop in shape.outlines()]
     if not shape.inverted:
         for vertices in polygons:

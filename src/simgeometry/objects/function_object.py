@@ -92,10 +92,6 @@ class FunctionObject2D(Shape2D):
         """
         return self._apply_inversion(bool(self._func(xp.to_numpy(coords))))
 
-    def get_vertices(self) -> list:
-        """Return an empty list; vertices cannot be derived from an arbitrary function."""
-        return []
-
     def plot(self, ax: Any = None, **kwargs: Any) -> Any:
         """Draw the object as a sampled mask into ``ax`` and return the axes.
 

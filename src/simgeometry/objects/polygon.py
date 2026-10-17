@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import cunumpy as xp
+import numpy as np
 from numpy import ndarray
 
 from simgeometry.kernels.contains_polygon_2d import kernel as contains_polygon_2d
-from simgeometry.point import Point2D
-from simgeometry.pointlist import PointList
 from simgeometry.shapes import Shape2D, _component_major
 from simgeometry.utils import vertices_to_bounds
 
 
 class Polygon(Shape2D):
     """Represent a polygon geometry object."""
+
+    exact_outline = True
 
     def __init__(
         self,
@@ -112,19 +113,9 @@ class Polygon(Shape2D):
 
         self.set_bounding_box(lower_bound, upper_bound)
 
-    def get_vertices(self) -> PointList:
-        """
-        Return the vertices of the polygon.
-
-        Returns:
-        list: List of vertices as (x, y) coordinates.
-        """
-
-        point_list = PointList(
-            [Point2D(x=vertex[0], y=vertex[1]) for vertex in self._vertices],
-        )
-
-        return point_list
+    def _corner_loops(self) -> list[np.ndarray]:
+        """The polygon's vertices as one ``(2, n)`` loop."""
+        return [np.asarray(xp.to_numpy(self._vertices), dtype=float).T.copy()]
 
     def _contains_polygon(self, coords: ndarray) -> bool:
         """
@@ -174,6 +165,8 @@ class Polygon(Shape2D):
     def contains_points(self, points: ndarray) -> ndarray:
         """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
         points = xp.asarray(_component_major(points, 2), dtype=float)
+        if points.shape[1] == 0:  # the compiled kernels reject empty arrays
+            return xp.zeros(0, dtype=bool)
         vertices = xp.kernels.as_kernel_array(self._vertices, like=points, dtype=float)
         lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]

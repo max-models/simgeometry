@@ -147,6 +147,20 @@ class GeometryAPI:
 
         return intersect_segment(self, start, end, samples=samples, tolerance=tolerance)
 
+    def crossings(self, start, end, *, samples=64, iterations=40):
+        """First boundary crossing of every segment ``start[:, i] -> end[:, i]``.
+
+        ``start`` and ``end`` are ``(ndim, N)``, such as particle positions before and
+        after a step. Returns a :class:`~simgeometry.crossings.Crossings` with ``hit``,
+        ``fraction``, ``point`` and ``normal`` (out of the region where ``contains`` is
+        true) on the active array backend. Polygons, circles, spheres, boxes and their
+        affine transforms are analytic; other shapes sample ``samples`` points per
+        segment and bisect ``iterations`` times.
+        """
+        from simgeometry.crossings import crossings
+
+        return crossings(self, start, end, samples=samples, iterations=iterations)
+
     def closest_point(self, points, *, resolution=64, bounds=None):
         """Closest surface coordinates; primitives are exact, others use a mesh.
 

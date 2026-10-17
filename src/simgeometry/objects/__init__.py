@@ -9,6 +9,7 @@ from simgeometry.objects.cuboid import Cuboid
 from simgeometry.objects.function_object import FunctionObject2D, FunctionObject3D
 from simgeometry.objects.line import Line
 from simgeometry.objects.polygon import Polygon
+from simgeometry.objects.polyline import Polyline
 from simgeometry.objects.rectangle import Rectangle
 
 # 3D objects
@@ -26,6 +27,7 @@ __all__ = [
     # 1D objects
     "Line",
     "Polygon",
+    "Polyline",
     "Rectangle",
     # 3D objects
     "Sphere",

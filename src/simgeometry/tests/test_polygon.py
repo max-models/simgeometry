@@ -6,7 +6,6 @@ import cunumpy as xp
 import pytest
 
 from simgeometry.objects.polygon import Polygon
-from simgeometry.pointlist import PointList
 
 
 class TestPolygon:
@@ -90,17 +89,13 @@ class TestPolygon:
         assert polygon.lower_bound == (2.0, 3.0)
         assert polygon.upper_bound == (3.0, 4.0)
 
-    def test_get_vertices(self) -> None:
-        """Test getting vertices of the polygon."""
+    def test_outline_is_the_vertices(self) -> None:
+        """The outline of a polygon is its vertices, component-major."""
         vertices = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
         polygon = Polygon(vertices)
-        verts = polygon.get_vertices()
-
-        assert isinstance(verts, PointList)
-        assert len(verts.points) == 4
-        expected_coords = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-        for actual, expected in zip(verts.points, expected_coords):
-            assert actual.coordinates == expected
+        (loop,) = polygon.outlines()
+        np.testing.assert_array_equal(loop, np.asarray(vertices).T)
+        assert polygon.exact_outline is True
 
     def test_contains_inside(self) -> None:
         """Test contains method for points inside the polygon."""

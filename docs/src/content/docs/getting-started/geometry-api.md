@@ -129,14 +129,42 @@ provides the interactive clipping behavior.
 
 ## Solver integration
 
-`shape.outlines(max_spacing=...)` returns the boundary of a 2D shape as closed,
-counter-clockwise `(2, n)` loops, one per piece (an `Aperture2D` has two), with no
-edge longer than `max_spacing`; circles put every vertex on the circle. `max_spacing` can
-also be a function of `(2, m)` points returning `(m,)` spacings, which grades the vertices
-(fine near an aperture tip, coarse far from it); see the
-[boundary outlines tutorial](/simgeometry/tutorials/boundary-outlines/). Boundary-element
-and panel solvers can discretise electrodes and walls from it directly. Boolean shapes have
-no outline; transformed 2D shapes transform their source's.
+`shape.outlines(max_spacing=...)` returns the boundary of a 2D shape as `(2, n)` loops,
+one per piece (an `Aperture2D` has two), with no edge longer than `max_spacing`; circles put
+every vertex on the circle. Loops keep the shape on their left: outer boundaries run
+counter-clockwise and holes clockwise. `max_spacing` can also be a function of `(2, m)`
+points returning `(m,)` spacings, which grades the vertices (fine near an aperture tip,
+coarse far from it); see the
+[boundary outlines tutorial](/simgeometry/tutorials/boundary-outlines/). Transformed 2D
+shapes transform their source's loops. Boolean 2D shapes (`a | b`, `a & b`, `a - b`,
+nested) have outlines through shapely (`pip install 'simgeometry[clip]'`): each operand
+enters as the polygon of its own outline, so curved operands are approximated by inscribed
+polygons. Inverted operands, open curves and function objects have no outline to combine.
+`exact_outline` is true where the outline is the exact boundary (polygons, rectangles,
+triangles, apertures, polylines and their affine images).
+
+A `Polyline` is an open curve of zero thickness, for thin plates and wires: it contains
+no points, `closed` is `False`, and its outline runs from its first vertex to its last.
+`Aperture2D.slit(axial_position, half_width, thickness, length, axis=...)` builds two
+rectangular plates; `axis` is the beam axis (0 for x, 1 for y).
+
+`shape.boundary_panels(max_spacing=...)` turns the outline into straight panels
+(`simgeometry.panels.Panels`): `start`, `end`, `midpoint`, `length`, unit `tangent` and
+`normal`, and the loop each panel belongs to (`piece`). The normal is to the right of the
+panel's direction, so it points out of the geometry, into the hole at a hole; for an open
+curve it is the right-hand side of the curve. Boundary-element and panel solvers can
+discretise electrodes and walls from it directly.
+
+`shape.crossings(start, end)` finds where each of N steps, given as `(ndim, N)` start and
+end positions, first crosses the shape's boundary, entering or leaving. It returns `hit`,
+`fraction` in (0, 1], `point` and a unit `normal` pointing out of the region where
+`contains` is true. Because the whole step is tested, a fast particle cannot pass through a
+thin plate between two end points. Polygonal 2D shapes, polylines, circles, spheres,
+axis-aligned boxes and their affine transforms are exact. Other shapes are sampled at
+`samples` points per step and bisected, so features thinner than `1 / samples` of a step can
+be missed, and their normals are estimated (`exact` is `False`). A crossing at the very
+start of a step is not reported, so a particle stopped on a surface is not counted twice;
+grazing contacts are not crossings.
 
 `simgeometry.cut_edges.bracketed_edge_geometry()` is the batched geometry path for
 Picnic's Shortley–Weller stencil. It visits fluid nodes with solid neighbours and
