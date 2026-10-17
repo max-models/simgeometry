@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
-import cunumpy as xp
+import numpy as np
 from numpy import ndarray
 
 from simgeometry._types import ConfigValue
 from simgeometry.objects.polygon import Polygon
-from simgeometry.pointlist import PointList
 from simgeometry.shapes import Shape2D
 
 
 class Aperture2D(Shape2D):
-    """Represent a two-dimensional aperture embedded in a simulation domain."""
+    """Two plates mirrored about a beam axis: a slit, or the 2D cut of a round aperture.
+
+    The beam runs along coordinate ``axis`` (0 for x, 1 for y), on the centre line
+    where the other coordinate equals ``position``. ``vertices`` are the plate profile
+    as ``(axial, radial)`` pairs: the coordinate along the beam and the distance from
+    the centre line. One plate is the polygon at ``position + radial``, the other its
+    mirror image at ``position - radial``. :meth:`slit` builds the common rectangular
+    plates.
+    """
+
+    exact_outline = True
 
     def __init__(
         self,
@@ -26,12 +35,11 @@ class Aperture2D(Shape2D):
         Initialize a 2D aperture object.
 
         Parameters:
-            axis (int): Axis along which the aperture is defined (0 or 1). Stored
-                only: the plates are always built with the beam along x.
-            position (float): The aperture's centre line, ``y = position``.
+            axis (int): The beam axis, 0 (along x) or 1 (along y).
+            position (float): The centre line: the coordinate across the beam,
+                ``y`` for ``axis=0`` and ``x`` for ``axis=1``.
             vertices (list or tuple): The plate profile as ``(axial, radial)``
-                vertices: each plate is the polygon through
-                ``(axial, position ± radial)``.
+                vertices.
             bc (optional): Boundary condition information.
             inverted (bool, optional): Cover everything except the two plates.
         """
@@ -42,17 +50,10 @@ class Aperture2D(Shape2D):
         self._bc = bc
         self._inverted = bool(inverted)
 
-        # Generate two polygons
-        self._lower_polygon = Polygon(
-            vertices=self.get_vertices_lower(),
-            bc=bc,
-        )
-        self._upper_polygon = Polygon(
-            vertices=self.get_vertices_upper(),
-            bc=bc,
-        )
+        lower, upper = self._plate_vertices()
+        self._lower_polygon = Polygon(vertices=lower, bc=bc)
+        self._upper_polygon = Polygon(vertices=upper, bc=bc)
 
-        # Set the bounds
         super().__init__(
             lower_bound=tuple(
                 min(lower, upper)
@@ -70,68 +71,76 @@ class Aperture2D(Shape2D):
             ),
         )
 
+    @classmethod
+    def slit(
+        cls,
+        axial_position: float,
+        half_width: float,
+        thickness: float,
+        length: float,
+        *,
+        axis: int = 0,
+        position: float = 0.0,
+        bc: ConfigValue = None,
+        inverted: bool = False,
+    ) -> Aperture2D:
+        """A slit: two rectangular plates with a gap of ``2 * half_width`` between them.
+
+        The plates are ``thickness`` thick along the beam, centred on
+        ``axial_position``, and extend ``length`` outward from the gap.
+        """
+        if not (half_width >= 0 and thickness > 0 and length > 0):
+            raise ValueError(
+                "A slit needs half_width >= 0 and positive thickness and length"
+            )
+        front, back = axial_position - thickness / 2, axial_position + thickness / 2
+        tip, outer = half_width, half_width + length
+        return cls(
+            axis=axis,
+            position=position,
+            vertices=((front, tip), (back, tip), (back, outer), (front, outer)),
+            bc=bc,
+            inverted=inverted,
+        )
+
     @property
     def axis(self) -> int:
-        """Return the aperture axis."""
+        """Return the beam axis."""
         return self._axis
 
     @axis.setter
     def axis(self, value: int) -> None:
-        """Set the axis."""
+        """Set the beam axis."""
         assert value in [0, 1], "Axis must be one of 0 or 1."
         self._axis = value
 
-    def get_vertices(self) -> list[PointList]:
-        """Return the vertices that define the object."""
+    def _plate_vertices(self) -> tuple[ndarray, ndarray]:
+        """The ``(n, 2)`` vertices of the plate below and the plate above the centre line."""
+        profile = np.asarray(self.vertices, dtype=float)
+        axial, radial = profile[:, 0], profile[:, 1]
+        plates = []
+        for across in (self.position - radial, self.position + radial):
+            points = (axial, across) if self.axis == 0 else (across, axial)
+            plates.append(np.stack(points, axis=1))
+        return plates[0], plates[1]
+
+    def _corner_loops(self) -> list[np.ndarray]:
+        """One loop per plate: the lower plate, then the upper one."""
         return [
-            self._lower_polygon.get_vertices(),
-            self._upper_polygon.get_vertices(),
+            loop
+            for plate in (self._lower_polygon, self._upper_polygon)
+            for loop in plate._corner_loops()
         ]
 
-    # TODO: simplify these two methods
-    # Maybe combine or get rid of them, they are only used in the init
-    def get_vertices_lower(self) -> xp.ndarray:
-        """
-        Return the vertices of the polygon.
-
-        Returns:
-        list: List of vertices as (x, y) coordinates.
-        """
-        axial_positions = self.zvec
-        mid_position = self.position
-        perp_positions = [mid_position - r for r in self.rvec]
-
-        vertices_polygon = xp.array(
-            [(ax, perp) for ax, perp in zip(axial_positions, perp_positions)],
-        )
-        return vertices_polygon
-
-    def get_vertices_upper(self) -> xp.ndarray:
-        """
-        Return the vertices of the polygon.
-
-        Returns:
-        list: List of vertices as (x, y) coordinates.
-        """
-        axial_positions = self.zvec
-        mid_position = self.position
-        perp_positions = [mid_position + r for r in self.rvec]
-
-        vertices_polygon = xp.array(
-            [(ax, perp) for ax, perp in zip(axial_positions, perp_positions)],
-        )
-        return vertices_polygon
-
-    # TODO: The contains method should probably take a tuple as input
     def contains(self, coords: ndarray) -> bool:
         """
-        Check if the given coordinates are inside the polygon.
+        Check if the given coordinates are inside one of the plates.
 
         Parameters:
         coords (list or tuple): Coordinates (x, y).
 
         Returns:
-        bool: True if the point is inside the polygon, False otherwise.
+        bool: True if the point is inside a plate, False otherwise.
         """
 
         inside = self._lower_polygon.contains(coords) or self._upper_polygon.contains(
@@ -148,7 +157,7 @@ class Aperture2D(Shape2D):
 
     @property
     def vertices(self) -> tuple[tuple[float, float], ...]:
-        """Return object vertices."""
+        """Return the plate profile as ``(axial, radial)`` vertices."""
         return self._vertices
 
     @vertices.setter
@@ -170,19 +179,5 @@ class Aperture2D(Shape2D):
 
     @property
     def position(self) -> float:
-        """Return the object position."""
+        """Return the centre line's coordinate across the beam."""
         return self._position
-
-
-if __name__ == "__main__":
-    aperture = Aperture2D(
-        axis=0,
-        position=10.0,
-        vertices=((0, 0), (3, 5), (5, 0)),
-    )
-    another_pg = Aperture2D(
-        vertices=((0, 0), (3, 5), (5, 0)),
-        position=10,
-        axis=0,
-    )
-    print("Aperture vertices:", aperture.get_vertices())

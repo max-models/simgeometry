@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cunumpy as xp
 import numpy as np
@@ -13,6 +13,9 @@ from simgeometry._types import Array
 from simgeometry.api import GeometryAPI
 from simgeometry.boundingbox import BoundingBox
 from simgeometry.grid import Grid
+
+if TYPE_CHECKING:
+    from simgeometry.panels import Panels
 
 
 def _component_major(points: Array, ndim: int) -> Array:
@@ -71,14 +74,23 @@ def _distribute(
     return np.interp(np.arange(n) / n * cumulative[-1], cumulative, t)
 
 
-def _refine_loop(loop: np.ndarray, max_spacing: Spacing) -> np.ndarray:
-    """Split each edge of a closed ``(2, n)`` loop into pieces of about ``max_spacing``."""
+def _refine_loop(
+    loop: np.ndarray, max_spacing: Spacing, *, closed: bool = True
+) -> np.ndarray:
+    """Split each edge of a ``(2, n)`` loop into pieces of about ``max_spacing``.
+
+    A closed loop also has the edge from its last vertex back to its first; an open
+    one (a polyline) keeps its last vertex.
+    """
+    ends = np.roll(loop, -1, axis=1) if closed else loop[:, 1:]
     pieces = []
-    for a, b in zip(loop.T, np.roll(loop, -1, axis=1).T):
+    for a, b in zip(loop.T, ends.T):
         length = float(np.hypot(*(b - a)))
         a, b = a[:, None], b[:, None]
         t = _distribute(lambda t: a + t * (b - a), length, max_spacing)
         pieces.append(a + t * (b - a))
+    if not closed:
+        pieces.append(loop[:, -1:])
     return np.concatenate(pieces, axis=1)
 
 
@@ -258,7 +270,15 @@ class Shape1D(Shape):
 
 
 class Shape2D(Shape):
-    """Represent a two-dimensional shape."""
+    """Represent a two-dimensional shape.
+
+    ``exact_outline`` is True for shapes whose :meth:`outlines` are their exact
+    boundary (polygons), False for curved ones. ``closed`` is False for open curves
+    (:class:`~simgeometry.Polyline`), which enclose no area.
+    """
+
+    exact_outline: bool = False
+    closed: bool = True
 
     def __init__(
         self,
@@ -274,15 +294,6 @@ class Shape2D(Shape):
         super().__init__(ndim=2, lower_bound=lower_bound, upper_bound=upper_bound)
 
     @abstractmethod
-    def get_vertices(self) -> list[list[float]]:
-        """
-        Get the vertices of the 2D shape.
-
-        Returns:
-        list: List of vertices as [x, y] coordinates.
-        """
-
-    @abstractmethod
     def contains(self, coords: tuple[float, float]) -> bool:
         """
         Check if the given coordinates are inside the shape.
@@ -295,16 +306,18 @@ class Shape2D(Shape):
         """
 
     def outlines(self, max_spacing: Spacing | None = None) -> list[np.ndarray]:
-        """Return the closed boundary loops of the shape as ``(2, n)`` host arrays.
+        """Return the boundary loops of the shape as ``(2, n)`` host arrays.
 
         Each loop is counter-clockwise, without repeating its first vertex. A shape
         made of several pieces (such as :class:`~simgeometry.Aperture2D`'s two
-        plates) has one loop per piece. With ``max_spacing``, edges longer than it
-        are split evenly so that no two consecutive vertices are further apart;
-        curved shapes then place every vertex on the curve. ``max_spacing`` may
-        also be a function of ``(2, m)`` points returning ``(m,)`` spacings, to grade
-        the vertices (finer near a corner, say); the spacing then holds
-        approximately. Inversion does not change the outline.
+        plates) has one loop per piece. An open curve (``closed`` is False) gives
+        its polyline instead, from its first vertex to its last. With
+        ``max_spacing``, edges longer than it are split evenly so that no two
+        consecutive vertices are further apart; curved shapes then place every
+        vertex on the curve. ``max_spacing`` may also be a function of ``(2, m)``
+        points returning ``(m,)`` spacings, to grade the vertices (finer near a
+        corner, say); the spacing then holds approximately. Inversion does not
+        change the outline.
         """
         if (
             max_spacing is not None
@@ -312,28 +325,31 @@ class Shape2D(Shape):
             and not max_spacing > 0
         ):
             raise ValueError("max_spacing must be positive")
-        return [
-            loop[:, ::-1] if _signed_area(loop) < 0.0 else loop
-            for loop in self._outline_loops(max_spacing)
-        ]
+        loops = self._outline_loops(max_spacing)
+        if not self.closed:
+            return loops
+        return [loop[:, ::-1] if _signed_area(loop) < 0.0 else loop for loop in loops]
+
+    def boundary_panels(self, max_spacing: Spacing | None = None) -> Panels:
+        """The edges of :meth:`outlines` as panels, for boundary-element solvers.
+
+        See :class:`~simgeometry.panels.Panels` for the arrays and the normal
+        convention.
+        """
+        from simgeometry.panels import boundary_panels
+
+        return boundary_panels(self, max_spacing)
+
+    def _corner_loops(self) -> list[np.ndarray]:
+        """The unrefined ``(2, n)`` boundary loops; polygonal shapes define this."""
+        raise NotImplementedError(f"{type(self).__name__} has no outline")
 
     def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
-        """The loops through :meth:`get_vertices`, refined; curved shapes override this."""
-        pointlists = self.get_vertices()
-        if not isinstance(pointlists, list):
-            pointlists = [pointlists]
-        loops = [
-            np.array(
-                [
-                    [float(v[0]) for v in pl.get_coordinates()],
-                    [float(v[1]) for v in pl.get_coordinates()],
-                ]
-            )
-            for pl in pointlists
-        ]
+        """The loops of :meth:`_corner_loops`, refined; curved shapes override this."""
+        loops = self._corner_loops()
         if max_spacing is None:
             return loops
-        return [_refine_loop(loop, max_spacing) for loop in loops]
+        return [_refine_loop(loop, max_spacing, closed=self.closed) for loop in loops]
 
     def plot(self, ax: Any = None, **kwargs: Any) -> Any:
         """Draw the shape as filled polygons into ``ax`` and return the axes.

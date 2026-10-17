@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import cunumpy as xp
+import numpy as np
 
 from simgeometry._types import Array, ConfigValue, Vertices2DLike
-from simgeometry.point import Point2D
-from simgeometry.pointlist import PointList
 from simgeometry.shapes import Shape2D, _component_major
 from simgeometry.utils import vertices_to_bounds
 
 
 class Triangle(Shape2D):
     """Represent a triangular geometry object."""
+
+    exact_outline = True
 
     def __init__(
         self,
@@ -138,14 +139,10 @@ class Triangle(Shape2D):
             inside = in_box & (u >= 0) & (v >= 0) & (u + v <= 1)
         return ~inside if self.inverted else inside
 
-    def get_vertices(self) -> ConfigValue:
-        """
-        Return the vertices of the polygon.
-
-        Returns:
-        list: List of vertices as (x, y) coordinates.
-        """
-        point_list = PointList(
-            [Point2D(x=vertex[0], y=vertex[1]) for vertex in self._vertices],
-        )
-        return point_list
+    def _corner_loops(self) -> list[np.ndarray]:
+        """The three vertices as one ``(2, 3)`` loop."""
+        return [
+            np.array(
+                [[float(xp.to_numpy(v)[i]) for v in self._vertices] for i in (0, 1)]
+            )
+        ]

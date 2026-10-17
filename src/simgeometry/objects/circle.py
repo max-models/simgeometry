@@ -6,8 +6,6 @@ import cunumpy as xp
 import numpy as np
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.point import Point2D
-from simgeometry.pointlist import PointList
 from simgeometry.shapes import Shape2D, Spacing, _component_major, _distribute
 
 
@@ -113,37 +111,6 @@ class Circle(Shape2D):
             return [curve(np.arange(100) / 100)]
         perimeter = 2 * np.pi * self.radius
         return [curve(_distribute(curve, perimeter, max_spacing, min_points=3))]
-
-    def get_vertices(self, num_vertices: int = 100) -> ConfigValue:
-        """
-        Get the vertices approximating the circle.
-
-        Parameters:
-        num_vertices (int): Number of vertices to approximate the circle.
-
-        Returns:
-        list: List of vertices as (x, y) coordinates.
-        """
-        theta = xp.linspace(0, 2 * xp.pi, num_vertices, endpoint=False)
-        point_list = PointList(
-            [
-                Point2D(
-                    x=self.midpoint[0] + self.radius * xp.cos(t),
-                    y=self.midpoint[1] + self.radius * xp.sin(t),
-                )
-                for t in theta
-            ],
-        )
-        return point_list
-
-        # return [
-        #     xp.vstack(
-        #         [
-        #             self.midpoint[0] + self.radius * xp.cos(theta),
-        #             self.midpoint[1] + self.radius * xp.sin(theta),
-        #         ],
-        #     ).T
-        # ]
 
     def contains(self, coords: Array) -> bool:
         """

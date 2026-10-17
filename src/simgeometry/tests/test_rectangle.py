@@ -6,7 +6,6 @@ import cunumpy as xp
 import pytest
 
 from simgeometry.objects.rectangle import Rectangle
-from simgeometry.pointlist import PointList
 
 
 class TestRectangle:
@@ -82,21 +81,14 @@ class TestRectangle:
         assert rect.lower_bound == (1.0, -1.0)
         assert rect.upper_bound == (3.0, 3.0)
 
-    def test_get_vertices(self) -> None:
-        """Test getting vertices of the rectangle."""
+    def test_outline_is_the_corners(self) -> None:
+        """The outline of a rectangle is its four corners, counter-clockwise."""
         rect = Rectangle((1.0, 2.0), (2.0, 4.0))
-        vertices = rect.get_vertices()
-
-        expected_coords = [
-            (0.0, 0.0),  # lower_bound
-            (2.0, 0.0),
-            (2.0, 4.0),
-            (0.0, 4.0),  # upper_bound
-        ]
-        assert isinstance(vertices, PointList)
-        assert len(vertices.points) == 4
-        for actual, expected in zip(vertices.points, expected_coords):
-            assert actual.coordinates == expected
+        (loop,) = rect.outlines()
+        np.testing.assert_array_equal(
+            loop, [[0.0, 2.0, 2.0, 0.0], [0.0, 0.0, 4.0, 4.0]]
+        )
+        assert rect.exact_outline is True
 
     def test_contains_inside(self) -> None:
         """Test contains method for points inside the rectangle."""

@@ -11,6 +11,7 @@ Concrete geometric objects that can be embedded in a simulation domain.
 - `cuboid.py` - Cuboid helpers for geometric object definitions.
 - `line.py` - Line helpers for geometric object definitions.
 - `polygon.py` - Polygon helpers for geometric object definitions.
+- `polyline.py` - Open polylines: curves of zero thickness (thin plates, wires).
 - `rectangle.py` - Rectangle helpers for geometric object definitions.
 - `sphere.py` - Sphere helpers for geometric object definitions.
 - `triangle.py` - Triangle helpers for geometric object definitions.

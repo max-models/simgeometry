@@ -6,7 +6,6 @@ import cunumpy as xp
 import pytest
 
 from simgeometry.objects.circle import Circle
-from simgeometry.pointlist import PointList
 
 
 class TestCircle:
@@ -79,23 +78,14 @@ class TestCircle:
         assert circle.lower_bound == (0.0, -2.0)
         assert circle.upper_bound == (6.0, 4.0)
 
-    def test_get_vertices(self) -> None:
-        """Test getting vertices approximating the circle."""
+    def test_outline_vertices_lie_on_the_circle(self) -> None:
+        """The outline is a counter-clockwise loop on the circle."""
         circle = Circle((0.0, 0.0), 1.0)
-        vertices = circle.get_vertices(num_vertices=4)
-
-        # Should approximate a circle with 4 points
-        expected_coords = [
-            (1.0, 0.0),  # cos(0), sin(0)
-            (0.0, 1.0),  # cos(pi/2), sin(pi/2)
-            (-1.0, 0.0),  # cos(pi), sin(pi)
-            (0.0, -1.0),  # cos(3pi/2), sin(3pi/2)
-        ]
-        assert isinstance(vertices, PointList)
-        assert len(vertices.points) == 4
-        for actual, expected in zip(vertices.points, expected_coords):
-            assert abs(actual.coordinates[0] - expected[0]) < 1e-10
-            assert abs(actual.coordinates[1] - expected[1]) < 1e-10
+        (loop,) = circle.outlines(max_spacing=2 * np.pi / 4)
+        np.testing.assert_allclose(
+            loop, [[1.0, 0.0, -1.0, 0.0], [0.0, 1.0, 0.0, -1.0]], atol=1e-12
+        )
+        assert circle.exact_outline is False
 
     def test_contains_inside(self) -> None:
         """Test contains method for points inside the circle."""
