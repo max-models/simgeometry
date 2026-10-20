@@ -1,5 +1,7 @@
 """Shapes, grids, and domains for numerical simulations."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from simgeometry.collection import GeometryCollection
 from simgeometry.grid import Grid
 from simgeometry.objects import (
@@ -18,7 +20,10 @@ from simgeometry.objects import (
 )
 from simgeometry.simulation_domain import SimulationDomain
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("simgeometry")
+except PackageNotFoundError:  # not installed, e.g. run from a source tree
+    __version__ = "0.0.0+unknown"
 __all__ = [
     "GeometryCollection",
     "Grid",
