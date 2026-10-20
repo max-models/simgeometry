@@ -35,6 +35,8 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `__version__` is read from the installed package metadata (`importlib.metadata`), not hardcoded,
+  so it can no longer disagree with `pyproject.toml` (the 0.1.1 wheel reported 0.1.0).
 - One out-of-range rule for owners: per axis, positions below the lower bound belong to the
   first block and positions at or above the upper edge to the last (the block index is clipped).
   `owner_rank_for_position` now calls `owner_ranks`; positions below the lower bound used to go
