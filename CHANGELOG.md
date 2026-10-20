@@ -7,6 +7,12 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `DomainDecomposition.owner_ranks(positions, lower_bound, upper_bound, num_gridpoints,
+  layout)` and `owned_mask(...)`: vectorised position-to-rank lookup for NumPy and CuPy arrays
+  (`(ndim, n)` by default, `layout="particle_major"` for `(n, ndim)`).
+- `DomainDecomposition.position_decomposition(lower_bound, upper_bound, num_gridpoints)`: the
+  decomposition with the grid bound in, implementing the `PositionDecomposition` protocol
+  (`comm`, `rank`, `size`, `owners(positions)`, `owned_mask(positions)`).
 - `Shape2D.outlines(max_spacing=None)`: the closed boundary loops of a 2D shape as
   counter-clockwise `(2, n)` arrays, with edges refined to at most `max_spacing`, or graded
   by a spacing function of position; also on transformed 2D shapes. Plotting draws shapes
@@ -29,6 +35,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- One out-of-range rule for owners: per axis, positions below the lower bound belong to the
+  first block and positions at or above the upper edge to the last (the block index is clipped).
+  `owner_rank_for_position` now calls `owner_ranks`; positions below the lower bound used to go
+  to the last block.
 - `Aperture2D(axis=...)` now sets the beam axis: `axis=1` builds the plates with the beam
   along y. Before, `axis` was ignored and the beam always ran along x, as it still does
   for `axis=0`.

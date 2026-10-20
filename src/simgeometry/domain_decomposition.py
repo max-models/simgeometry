@@ -1,7 +1,7 @@
 """Process grid of the MPI ranks and the physical subdomain each one owns.
 
 The process grid decides which rank owns which part of the domain. It is used for
-particles (:meth:`DomainDecomposition.owner_rank_for_position`) and, through
+particles (:meth:`DomainDecomposition.owner_ranks`) and, through
 :meth:`DomainDecomposition.layout`, for the :class:`mpiarray.DistributedArray` of the
 fields, so that markers and fields agree on who owns what.
 """
@@ -10,10 +10,81 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import Any, Literal, Protocol, runtime_checkable
 
+import cunumpy as xp
 import mpiarray as mpa
 import numpy as np
 from maybempi import MPI
+
+Layout = Literal["component_major", "particle_major"]
+"""Axis order of a positions array: ``(ndim, n)`` or ``(n, ndim)``."""
+
+
+@runtime_checkable
+class PositionDecomposition(Protocol):
+    """What a particle container needs from a decomposition of physical space.
+
+    The bounds of the domain are already bound in, so a container only passes
+    positions. ``positions`` have shape ``(ndim, n)`` (component-major). This is
+    the structural interface of the object returned by
+    :meth:`DomainDecomposition.position_decomposition`; other decompositions
+    can implement it without importing simgeometry.
+    """
+
+    comm: Any
+    rank: int
+    size: int
+
+    def owners(self, positions: Any) -> Any:
+        """Return the rank owning each position, as an integer array of shape ``(n,)``."""
+        ...
+
+    def owned_mask(self, positions: Any) -> Any:
+        """Return a boolean array: which positions this rank owns."""
+        ...
+
+
+class _BoundPositionDecomposition:
+    """A :class:`DomainDecomposition` with the grid bounds bound in."""
+
+    def __init__(
+        self,
+        decomposition: DomainDecomposition,
+        lower_bound: tuple[float, ...],
+        upper_bound: tuple[float, ...],
+        num_gridpoints: tuple[int, ...],
+    ) -> None:
+        decomposition._check_grid(lower_bound, upper_bound, num_gridpoints)
+        self._decomposition = decomposition
+        self._grid = (
+            tuple(float(v) for v in lower_bound),
+            tuple(float(v) for v in upper_bound),
+            tuple(int(v) for v in num_gridpoints),
+        )
+
+    @property
+    def comm(self) -> MPI.Comm | None:
+        """Return the communicator of the decomposition."""
+        return self._decomposition.comm
+
+    @property
+    def rank(self) -> int:
+        """Return this rank."""
+        return self._decomposition.mpi_rank
+
+    @property
+    def size(self) -> int:
+        """Return the number of ranks."""
+        return self._decomposition.mpi_size
+
+    def owners(self, positions: Any, layout: Layout = "component_major") -> Any:
+        """Return the owning rank of every position (see ``DomainDecomposition.owner_ranks``)."""
+        return self._decomposition.owner_ranks(positions, *self._grid, layout=layout)
+
+    def owned_mask(self, positions: Any, layout: Layout = "component_major") -> Any:
+        """Return which positions this rank owns (see ``DomainDecomposition.owned_mask``)."""
+        return self._decomposition.owned_mask(positions, *self._grid, layout=layout)
 
 
 class DomainDecomposition:
@@ -307,8 +378,8 @@ class DomainDecomposition:
         ``num_nodes`` nodes of the axis (``n - 1`` cells over ``[lower,
         upper]``, ``n`` on a periodic axis). Process coordinate ``c`` owns
         ``[edges[c], edges[c + 1])``, the cells whose lower node it owns; the
-        last one also owns ``upper``. This is the split
-        ``owner_rank_for_position`` uses.
+        last one also owns ``upper`` and everything beyond, the first
+        everything below ``lower`` (see :meth:`owner_ranks`).
         """
         num_procs = self.proc_sizes[dim]
         if num_procs == 1 or self.replicated:
@@ -342,6 +413,128 @@ class DomainDecomposition:
             upper.append(edges[proc_coord[dim] + 1])
         return tuple(lower), tuple(upper)
 
+    def _check_grid(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+    ) -> None:
+        """Raise if the grid description does not have ``ndim`` entries."""
+        if len(lower_bound) != self.ndim or len(upper_bound) != self.ndim:
+            raise ValueError("Bounds must match decomposition dimensions")
+        if len(num_gridpoints) != self.ndim:
+            raise ValueError("num_gridpoints must match decomposition dimensions")
+
+    def _components(self, positions: Any, layout: Layout) -> Any:
+        """Return ``positions`` as a float ``(ndim, n)`` array on the active backend."""
+        if layout not in ("component_major", "particle_major"):
+            raise ValueError(
+                f"layout must be 'component_major' or 'particle_major', got {layout!r}"
+            )
+        positions = xp.asarray(positions, dtype=float)
+        if positions.ndim != 2:
+            raise ValueError(f"positions must be 2D, got shape {positions.shape}")
+        if layout == "particle_major":
+            positions = positions.T
+        if positions.shape[0] != self.ndim:
+            raise ValueError(
+                f"positions have {positions.shape[0]} components for layout "
+                f"{layout!r}, expected {self.ndim}"
+            )
+        return positions
+
+    def owner_ranks(
+        self,
+        positions: Any,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+        layout: Layout = "component_major",
+    ) -> Any:
+        """Return the rank owning each position, vectorised.
+
+        ``positions`` is a NumPy or CuPy array (whatever the active cunumpy
+        backend is) of shape ``(ndim, n)`` for ``layout="component_major"``
+        (the default, the layout of the marker arrays) or ``(n, ndim)`` for
+        ``layout="particle_major"``. The layout is never guessed, so ``n ==
+        ndim`` is not ambiguous. The result is an ``int64`` array of shape
+        ``(n,)`` in the same memory as ``positions``; ranks are row-major over
+        :attr:`proc_sizes`.
+
+        Along each axis the subdomains are the blocks of
+        :meth:`subdomain_edges`: block ``c`` owns ``[edges[c], edges[c + 1])``.
+        **Out-of-range rule**: a position below the lower bound belongs to the
+        first block and one at or above the upper edge (including exactly the
+        upper bound) to the last block, that is, the block index is clipped into
+        ``[0, proc_sizes - 1]`` per axis. A position outside the box is thus
+        owned by the nearest subdomain, so it is never shipped across the whole
+        domain and exactly one rank owns it; deciding what happens to it (kill,
+        reflect, wrap on a periodic axis) is the particle boundary condition's
+        job and must happen before the lookup. NaN positions go to the last
+        block. Without a decomposed axis every position belongs to rank 0.
+        """
+        self._check_grid(lower_bound, upper_bound, num_gridpoints)
+        positions = self._components(positions, layout)
+        owners = xp.zeros(positions.shape[1], dtype=xp.int64)
+        for dim, num_procs in enumerate(self.proc_sizes):
+            if num_procs == 1 or self.replicated:
+                continue
+            edges = self.subdomain_edges(
+                dim,
+                float(lower_bound[dim]),
+                float(upper_bound[dim]),
+                int(num_gridpoints[dim]),
+            )
+            # The inner edges split the axis; searchsorted already yields
+            # 0 below the first and num_procs - 1 at or above the last.
+            coord = xp.searchsorted(
+                xp.asarray(edges[1:-1], dtype=float), positions[dim], side="right"
+            )
+            owners += coord * math.prod(self.proc_sizes[dim + 1 :])
+        return owners
+
+    def owned_mask(
+        self,
+        positions: Any,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+        layout: Layout = "component_major",
+    ) -> Any:
+        """Return which positions this rank owns, by the rule of :meth:`owner_ranks`.
+
+        Equal to ``owner_ranks(...) == mpi_rank`` (every rank owns everything
+        when no axis is decomposed), but only two comparisons per decomposed
+        axis against this rank's own edges, which is much cheaper than finding
+        every owner when most positions stay put.
+        """
+        self._check_grid(lower_bound, upper_bound, num_gridpoints)
+        positions = self._components(positions, layout)
+        owned = xp.ones(positions.shape[1], dtype=bool)
+        coords = self.proc_coord
+        for dim, num_procs in enumerate(self.proc_sizes):
+            if num_procs == 1 or self.replicated:
+                continue
+            edges = self.subdomain_edges(
+                dim,
+                float(lower_bound[dim]),
+                float(upper_bound[dim]),
+                int(num_gridpoints[dim]),
+            )
+            coord = coords[dim]
+            column = positions[dim]
+            last = num_procs - 1
+            if coord > 0:
+                # ``~(<)`` rather than ``>=`` keeps NaN on the last block.
+                owned &= (
+                    ~(column < edges[coord])
+                    if coord == last
+                    else (column >= edges[coord])
+                )
+            if coord < last:
+                owned &= column < edges[coord + 1]
+        return owned
+
     def owner_rank_for_position(
         self,
         position: Sequence[float] | np.ndarray,
@@ -349,35 +542,28 @@ class DomainDecomposition:
         upper_bound: tuple[float, ...],
         num_gridpoints: tuple[int, ...],
     ) -> int:
-        """Return the rank owning a physical position in a decomposed grid."""
-        if len(lower_bound) != self.ndim or len(upper_bound) != self.ndim:
-            raise ValueError("Bounds must match decomposition dimensions")
-        if len(num_gridpoints) != self.ndim:
-            raise ValueError("num_gridpoints must match decomposition dimensions")
+        """Return the rank owning one physical position (see :meth:`owner_ranks`)."""
+        self._check_grid(lower_bound, upper_bound, num_gridpoints)
+        point = xp.asarray(position, dtype=float).reshape(-1, 1)
+        owners = self.owner_ranks(point, lower_bound, upper_bound, num_gridpoints)
+        return int(owners[0])
 
-        proc_coord = []
-        for dim, (lower, upper, num_procs) in enumerate(
-            zip(
-                lower_bound,
-                upper_bound,
-                self.proc_sizes,
-            ),
-        ):
-            coord = num_procs - 1
-            value = float(position[dim])
-            edges = self.subdomain_edges(
-                dim, float(lower), float(upper), int(num_gridpoints[dim])
-            )
-            for candidate_coord in range(num_procs):
-                subdomain_lower = edges[candidate_coord]
-                subdomain_upper = edges[candidate_coord + 1]
-                if subdomain_lower <= value < subdomain_upper or (
-                    candidate_coord == num_procs - 1 and value == subdomain_upper
-                ):
-                    coord = candidate_coord
-                    break
-            proc_coord.append(coord)
-        return self.rank_from_proc_coord(tuple(proc_coord))
+    def position_decomposition(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+    ) -> PositionDecomposition:
+        """Return this decomposition with the grid bounds bound in.
+
+        The result implements :class:`PositionDecomposition` (``comm``,
+        ``rank``, ``size``, ``owners(positions)``, ``owned_mask(positions)``),
+        which is what a particle container needs; it does not change when the
+        bounds argument sequences are mutated afterwards.
+        """
+        return _BoundPositionDecomposition(
+            self, tuple(lower_bound), tuple(upper_bound), tuple(num_gridpoints)
+        )
 
     @property
     def comm(self) -> MPI.Comm | None:
