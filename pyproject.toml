@@ -56,9 +56,6 @@ optional-dependencies.metal = [ "mlx; sys_platform == 'darwin' and platform_mach
 optional-dependencies.test = [ "mpi4py", "pytest", "pytest-cov", "simgeometry[clip]" ]
 urls.Source = "https://github.com/max-models/simgeometry"
 
-[tool.uv.sources]
-scope-profiler = { git = "https://github.com/max-models/scope-profiler", branch = "devel" }
-
 [tool.setuptools]
 package-data."*" = [ "py.typed" ]
 package-data.simgeometry = [ "kernels/*/*.cu" ]
@@ -99,3 +96,4 @@ report.show_missing = true
 cunumpy = { git = "https://github.com/max-models/cunumpy", branch = "devel" }
 maybempi = { git = "https://github.com/max-models/maybempi", branch = "devel" }
 mpiarray = { git = "https://github.com/max-models/mpiarray", branch = "devel" }
+scope-profiler = { git = "https://github.com/max-models/scope-profiler", branch = "devel" }
