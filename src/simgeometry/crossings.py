@@ -27,7 +27,9 @@ from typing import Any
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.shapes import _component_major
 
 #: Crossings closer than this fraction to the start of a step are ignored.
@@ -55,6 +57,7 @@ class Crossings:
         return int(self.hit.shape[0])
 
 
+@sp.profile("simgeometry.crossings", tags=_PROFILE_TAGS)
 def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
     """Return the first boundary crossing of each segment ``start[:, i] -> end[:, i]``.
 

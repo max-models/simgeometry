@@ -26,6 +26,7 @@ dependencies = [
   "maybempi>=0.1",
   "mpiarray>=0.1.0",
   "numpy",
+  "scope-profiler>=0.7.5",
 ]
 optional-dependencies.dev = [
   "jupyterlab",
@@ -54,6 +55,9 @@ optional-dependencies.gpu = [ "cupy-cuda12x" ]
 optional-dependencies.metal = [ "mlx; sys_platform == 'darwin' and platform_machine == 'arm64'" ]
 optional-dependencies.test = [ "mpi4py", "pytest", "pytest-cov", "simgeometry[clip]" ]
 urls.Source = "https://github.com/max-models/simgeometry"
+
+[tool.uv.sources]
+scope-profiler = { git = "https://github.com/max-models/scope-profiler", branch = "devel" }
 
 [tool.setuptools]
 package-data."*" = [ "py.typed" ]

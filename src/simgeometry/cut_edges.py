@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
 from simgeometry.queries import intersection_fractions
 
@@ -27,6 +29,7 @@ class BracketedEdgeGeometry:
     nodes: np.ndarray
 
 
+@sp.profile("simgeometry.bracketed_edge_geometry", tags=_PROFILE_TAGS)
 def bracketed_edge_geometry(
     grid, objects, *, spacing=None, object_masks=None, periodic=None
 ):
@@ -195,6 +198,7 @@ class CutEdges:
         return ax
 
 
+@sp.profile("simgeometry.cut_edges", tags=_PROFILE_TAGS)
 def cut_edges(geometry, grid, *, samples=64, tolerance=1e-10):
     """Find all surface crossings, including objects between two fluid nodes.
 

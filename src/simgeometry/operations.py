@@ -7,7 +7,9 @@ from itertools import product
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.shapes import Shape, _component_major, _refine_loop, _signed_area
 
 
@@ -56,6 +58,7 @@ class BooleanShape(Shape):
             ]
         )
 
+    @sp.profile("simgeometry.boolean_outlines", tags=_PROFILE_TAGS)
     def outlines(self, max_spacing=None):
         """The boundary loops of a 2D Boolean shape, as ``(2, n)`` host arrays.
 

@@ -10,7 +10,9 @@ from dataclasses import dataclass
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.objects import (
     Circle,
     Cuboid,
@@ -296,6 +298,7 @@ def boundary_points_1d(shape, *, resolution=64, bounds=None):
     return hits.points
 
 
+@sp.profile("simgeometry.closest_point", tags=_PROFILE_TAGS)
 def closest_point(shape, points, *, resolution=64, bounds=None):
     p, single = points_array(points, shape.ndim)
     if isinstance(shape, BALLS):
@@ -343,6 +346,7 @@ def closest_point(shape, points, *, resolution=64, bounds=None):
     return q[:, 0] if single else q
 
 
+@sp.profile("simgeometry.signed_distance", tags=_PROFILE_TAGS)
 def signed_distance(shape, points, *, resolution=64, bounds=None):
     p, single = points_array(points, shape.ndim)
     q = closest_point(shape, p, resolution=resolution, bounds=bounds)

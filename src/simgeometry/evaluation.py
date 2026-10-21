@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
 
 
@@ -26,6 +28,7 @@ def sampling_axes(shape, resolution=128, bounds=None):
     return [np.linspace(a, b, int(n)) for a, b, n in zip(lower, upper, counts)]
 
 
+@sp.profile("simgeometry.evaluate", tags=_PROFILE_TAGS)
 def evaluate(
     shape,
     *,

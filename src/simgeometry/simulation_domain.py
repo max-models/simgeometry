@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import cunumpy as xp
+import scope_profiler as sp
 from maybempi import MPI
 
 from simgeometry._particle_boundaries import apply_particle_boundaries
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry._types import Array, ConfigValue
 from simgeometry.boundingbox import BoundingBox
 from simgeometry.grid import Grid
@@ -235,6 +237,7 @@ class SimulationDomain(BoundingBox):
         wrapped = lower + (values - lower) % (upper - lower)
         return xp.where(wrapped >= upper, lower, wrapped)
 
+    @sp.profile("simgeometry.apply_bc_arrays", tags=_PROFILE_TAGS)
     def apply_bc_arrays(
         self,
         positions: Array,

@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from itertools import product
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
 
 
@@ -23,6 +25,7 @@ class CellFractions:
     samples_per_axis: int
 
 
+@sp.profile("simgeometry.cell_fractions", tags=_PROFILE_TAGS)
 def cell_fractions(geometry, grid, *, samples_per_axis=4):
     """Estimate cell and face occupancy using a regular subcell sample lattice."""
     if geometry.ndim != grid.ndim:
