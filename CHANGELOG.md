@@ -13,6 +13,19 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PyVista backend draws them with plasma-plots' `pyvista_points` in the same legend as the
   objects (needs `plasma-plots>=0.2.5`); Matplotlib uses `scatter` and `quiver`. The
   tutorials "Shapes and node masks" and "Sampling, export and diagnostics" use it.
+- `DomainDecomposition.preview(size, decompose=..., periodic=..., rank=...)` (or
+  `proc_sizes=`): the decomposition a `size`-rank run would use, without a communicator, for
+  inspection and planning; `subdomain_boxes(...)` returns every rank's subdomain corners,
+  `show_3d(...)` draws them as boxes coloured by rank (plasma-plots, optional `shape=`) and
+  `show(...)` as rectangles in 2D. The tutorial "Parallel grids" shows an 8-rank scene.
+- `bracketed_edge_geometry(...).points` and `.normals`: the crossings in world coordinates
+  and the outward normals there, `(ndim, n)` like `cut_edges()`; `crossing_owners` indexes
+  each crossing's object. `BracketedEdgeGeometry` now keeps `spacing`, `periodic` and
+  `objects`, and `CutEdges` its `geometry`.
+- `CutEdges.show_3d()` and `BracketedEdgeGeometry.show_3d()`: the translucent surface, the
+  crossings and, optionally, the outward normals and solid nodes in 3D (PyVista or
+  Matplotlib). The tutorials "Grid intersections and cut edges" and "Conductors and level
+  sets" use them.
 - The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
   (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
   collection's conductors by their voltage at time `t`.
