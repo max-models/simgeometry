@@ -14,6 +14,9 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `field.plasma.plot.isosurface(...)`; `evaluate(quantity="level_set")`.
 - Interactive 3D scenes in the tutorials "Inspecting geometry" and "Conductors and level
   sets" (starlight-theme v0.5.0, `plasma_plots.scene`).
+- More interactive 3D scenes in the tutorials: the new solids and a 3D node mask, 3D
+  transforms and Booleans, an oblique slice through a shell, interior and surface samples,
+  3D cut edges with normals, the level set of a slotted electrode and its grid-edge crossings.
 - `DomainDecomposition.owner_ranks(positions, lower_bound, upper_bound, num_gridpoints,
   layout)` and `owned_mask(...)`: vectorised position-to-rank lookup for NumPy and CuPy arrays
   (`(ndim, n)` by default, `layout="particle_major"` for `(n, ndim)`).
