@@ -7,6 +7,12 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `Rectangle(..., fillet=r)`: a rectangle with rounded corners, up to a stadium at half
+  the shorter side; `Cuboid(..., fillet=r)` rounds the edges and corners of a box, like
+  the `fillet` of the solids of revolution. Both keep the exact level set (the rounded
+  box distance), analytic `crossings`, segment intersections, closest points and
+  normals; the outline is straight edges and arcs, refined by `max_spacing`. The
+  tutorial "Shapes and node masks" shows them.
 - `show_3d(points=...)` overlays labelled point sets, e.g. samples, grid nodes or
   crossings: an array in the `(3, n)` layout (or `(n, 3)`), or a dict of label to array or
   to `{"points", "vectors", "color", "size"}`, with optional arrows such as normals. The
@@ -116,6 +122,7 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `Cuboid` keeps its bounds as host floats, so its `crossings` work on CuPy.
 - `Polygon.contains_points` with the compiled kernels accepts vertices that are not
   C-ordered (a transposed `(2, n)` array).
 - `Aperture2D` documents its `axis` as `0` or `1` and its vertices as `(axial, radial)`.

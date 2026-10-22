@@ -8,10 +8,10 @@ Concrete geometric objects that can be embedded in a simulation domain.
 - `aperture2d.py` - Two-dimensional aperture helpers for geometric object definitions.
 - `aperture3d.py` - Three-dimensional aperture helpers for geometric object definitions.
 - `circle.py` - Circle helpers for geometric object definitions.
-- `cuboid.py` - Cuboid helpers for geometric object definitions.
+- `cuboid.py` - Cuboids, optionally with rounded edges.
 - `line.py` - Line helpers for geometric object definitions.
 - `polygon.py` - Polygon helpers for geometric object definitions.
 - `polyline.py` - Open polylines: curves of zero thickness (thin plates, wires).
-- `rectangle.py` - Rectangle helpers for geometric object definitions.
+- `rectangle.py` - Rectangles, optionally with rounded corners (stadiums).
 - `sphere.py` - Sphere helpers for geometric object definitions.
 - `triangle.py` - Triangle helpers for geometric object definitions.

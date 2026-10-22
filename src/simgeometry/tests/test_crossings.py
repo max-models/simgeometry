@@ -50,6 +50,9 @@ ANALYTIC = {
     "sphere": Sphere(midpoint=(0.1, 0.0, -0.2), radius=0.8),
     "rectangle": Rectangle(midpoint=(0.1, 0.2), side_lengths=(1.4, 0.8)),
     "cuboid": Cuboid(midpoint=(0.0, 0.1, 0.0), side_lengths=(1.2, 0.6, 1.0)),
+    "rounded rectangle": Rectangle((0.1, 0.2), (1.4, 0.8), fillet=0.3),
+    "stadium": Rectangle((0.1, 0.2), (1.4, 0.8), fillet=0.4),
+    "rounded cuboid": Cuboid((0.0, 0.1, 0.0), (1.2, 0.6, 1.0), fillet=0.2),
     "triangle": Triangle(vertices=((-1.0, -1.0), (1.2, -0.6), (0.1, 1.3))),
     "polygon": Polygon(
         vertices=np.array([(-1, -1), (1, -1), (1, 0), (0, 0), (0, 1), (-1, 1)], float)

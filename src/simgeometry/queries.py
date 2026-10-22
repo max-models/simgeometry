@@ -17,6 +17,11 @@ import scope_profiler as sp
 
 from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
+from simgeometry._rounded_box import (
+    rounded_box_closest,
+    rounded_box_interval,
+    rounded_box_normal,
+)
 from simgeometry.objects import (
     Circle,
     Cuboid,
@@ -31,6 +36,21 @@ from simgeometry.operations import BooleanShape, TransformedShape, mask
 BALLS = (Circle, Sphere)
 BOXES = (Rectangle, Cuboid, Line)
 POLYGONS = (Polygon, Triangle)
+
+
+def _is_rounded(shape):
+    """Whether ``shape`` is a box with rounded edges (a ``fillet``)."""
+    return isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0
+
+
+def _is_box(shape):
+    return isinstance(shape, BOXES) and not _is_rounded(shape)
+
+
+def _centre_half(shape):
+    lower = np.asarray(shape.lower_bound, float)
+    upper = np.asarray(shape.upper_bound, float)
+    return 0.5 * (lower + upper), 0.5 * (upper - lower)
 
 
 def points_array(points, ndim):
@@ -179,7 +199,14 @@ def _candidates(shape, a, b, samples, tolerance):
             return [], True
         half = np.sqrt(max(radial, 0) / aa)
         return [centre - half, centre + half], True
-    if isinstance(shape, BOXES):
+    if _is_rounded(shape):
+        centre, half = _centre_half(shape)
+        t0, t1 = rounded_box_interval(
+            a[:, None], d[:, None], centre, half, shape.fillet
+        )
+        lo, hi = float(t0[0]), float(t1[0])
+        return ([lo, hi] if lo <= hi else []), True
+    if _is_box(shape):
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
         lo, hi = -np.inf, np.inf
         for i in range(shape.ndim):
@@ -375,7 +402,9 @@ def closest_point(shape, points, *, resolution=64, bounds=None):
         unit = delta / np.where(radius > 0, radius, 1)
         unit[0, radius == 0] = 1
         q = np.asarray(shape.midpoint)[:, None] + shape.radius * unit
-    elif isinstance(shape, BOXES):
+    elif _is_rounded(shape):
+        q = rounded_box_closest(p, *_centre_half(shape), shape.fillet)
+    elif _is_box(shape):
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
         q = np.clip(p, lower[:, None], upper[:, None])
         inside = np.all((p >= lower[:, None]) & (p <= upper[:, None]), axis=0)
@@ -466,7 +495,11 @@ def surface_normal(shape, points, *, scale=None):
         n = p - np.asarray(shape.midpoint)[:, None]
         if shape.inverted:
             n = -n
-    elif isinstance(shape, BOXES):
+    elif _is_rounded(shape):
+        n = rounded_box_normal(p, *_centre_half(shape), shape.fillet)
+        if shape.inverted:
+            n = -n
+    elif _is_box(shape):
         distances = np.concatenate(
             (
                 abs(p - np.asarray(shape.lower_bound)[:, None]),

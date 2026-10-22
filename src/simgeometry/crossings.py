@@ -5,8 +5,8 @@
 shape's boundary, entering or leaving. Because the whole step is tested, not only its
 end point, a fast particle cannot pass through a thin plate unnoticed.
 
-Polygonal 2D shapes (exact outlines), circles, spheres and axis-aligned boxes are
-analytic; affine transforms of them stay analytic. Every other shape (Boolean
+Polygonal 2D shapes (exact outlines), circles, spheres and axis-aligned boxes, also
+with rounded edges (``fillet``), are analytic; affine transforms of them stay analytic. Every other shape (Boolean
 combinations, collections, function objects, ...) is sampled: membership is tested at
 ``samples`` points along each step and the first change is bisected, so features
 thinner than ``1 / samples`` of a step can be missed, and the normals are estimated.
@@ -34,6 +34,7 @@ import scope_profiler as sp
 
 from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
+from simgeometry._rounded_box import rounded_box_interval, rounded_box_normal
 from simgeometry.shapes import _component_major
 
 #: Crossings closer than this fraction to the start of a step are ignored.
@@ -101,6 +102,8 @@ def _first(shape, a, d, samples, iterations):
         return _transformed(shape, a, d, samples, iterations)
     if isinstance(shape, (Circle, Sphere)):
         return (*_ball(shape, a, d), True)
+    if isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0:
+        return (*_rounded_box(shape, a, d), True)
     if isinstance(shape, (Rectangle, Cuboid, Line)):
         return (*_box(shape, a, d), True)
     polygonal = (Polygon, Triangle, Aperture2D)
@@ -176,6 +179,17 @@ def _box(shape, a, d):
     normal = xp.zeros(a.shape)
     for k in range(shape.ndim):
         normal[k] = xp.where(axis == k, sign * xp.sign(d[k]), 0.0)
+    return t, _flip(shape, normal)
+
+
+def _rounded_box(shape, a, d):
+    lower = np.asarray(xp.to_numpy(shape.lower_bound), float).reshape(-1)
+    upper = np.asarray(xp.to_numpy(shape.upper_bound), float).reshape(-1)
+    centre, half = 0.5 * (lower + upper), 0.5 * (upper - lower)
+    t0, t1 = rounded_box_interval(a, d, centre, half, shape.fillet, array_xp=xp)
+    t, _ = _first_of_interval(t0, t1)
+    point = a + xp.where(xp.isfinite(t), t, 0.0)[None, :] * d
+    normal = rounded_box_normal(point, centre, half, shape.fillet, array_xp=xp)
     return t, _flip(shape, normal)
 
 
