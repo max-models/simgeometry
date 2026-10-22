@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 import scope_profiler as sp
@@ -20,6 +21,9 @@ class BracketedEdgeGeometry:
     with side 0 lower and 1 upper. Fractions are *not* clamped. This fast path
     assumes one crossing on every outside-to-inside bracket. Use ``cut_edges``
     to inspect multiple hits or objects smaller than a grid cell.
+
+    ``points`` and ``normals`` are the crossings in world coordinates, (ndim, n),
+    in the order of ``fractions``: key by key, each as ``f[np.isfinite(f)]``.
     """
 
     solid: np.ndarray
@@ -27,6 +31,180 @@ class BracketedEdgeGeometry:
     fractions: dict
     cut: np.ndarray
     nodes: np.ndarray
+    spacing: tuple
+    periodic: tuple
+    objects: tuple
+
+    @cached_property
+    def _crossings(self):
+        ndim = self.nodes.shape[0]
+        lower = self.nodes.reshape(ndim, -1)[:, 0]
+        periods = np.asarray(self.solid.shape) * np.asarray(self.spacing)
+        points, owners = [np.empty((ndim, 0))], [np.empty(0, dtype=int)]
+        for (axis, side), fraction in self.fractions.items():
+            cut = np.isfinite(fraction)
+            offset = 1 if side else -1
+            point = self.nodes[:, cut]
+            point[axis] += offset * self.spacing[axis] * fraction[cut]
+            points.append(point)
+            owners.append(np.roll(self.owners, -offset, axis=axis)[cut])
+        points = _wrap(np.concatenate(points, axis=1), lower, periods, self.periodic)
+        return points, np.concatenate(owners)
+
+    @property
+    def points(self):
+        """Crossing points in world coordinates, (ndim, n); periodic images wrapped."""
+        return self._crossings[0]
+
+    @property
+    def crossing_owners(self):
+        """Index into ``objects`` of the object each crossing enters, (n,)."""
+        return self._crossings[1]
+
+    @cached_property
+    def normals(self):
+        """Outward unit normals of the entered object at ``points``, (ndim, n)."""
+        points, owners = self._crossings
+        normals = np.full_like(points, np.nan)
+        for number, obj in enumerate(self.objects):
+            mine = owners == number
+            if mine.any():
+                normals[:, mine] = obj.surface_normal(points[:, mine])
+        return normals
+
+    def show_3d(self, **kwargs):
+        """Draw the objects, the crossings and optionally normals and solid nodes.
+
+        Takes the keyword arguments of :meth:`CutEdges.show_3d`; several objects
+        are drawn as one collection.
+        """
+        from simgeometry.collection import GeometryCollection
+
+        if len(self.objects) == 1:
+            shape = self.objects[0]
+        else:
+            shape = GeometryCollection(list(self.objects))
+        return _show_crossings_3d(
+            shape,
+            self.points,
+            self.normals if kwargs.get("normals") else None,
+            self.nodes[:, self.solid],
+            self.spacing,
+            **kwargs,
+        )
+
+
+def _wrap(points, lower, periods, periodic):
+    """Map points across periodic faces into the domain."""
+    points = points.copy()
+    for axis, flag in enumerate(periodic):
+        if flag:
+            offset = (points[axis] - lower[axis]) % periods[axis]
+            # a node's image across the face, built as node + step, can land a
+            # rounding error short of the period; it is the first node
+            offset[periods[axis] - offset <= 1e-9 * periods[axis]] = 0.0
+            points[axis] = lower[axis] + offset
+    return points
+
+
+def _show_crossings_3d(
+    shape,
+    points,
+    normal_vectors,
+    solid_nodes,
+    spacing,
+    *,
+    normals=False,
+    nodes=False,
+    surface=True,
+    backend="matplotlib",
+    ax=None,
+    resolution=48,
+    bounds=None,
+    opacity=0.25,
+    labels=True,
+    point_size=None,
+    normal_length=None,
+    display=True,
+    save=None,
+):
+    from simgeometry.visualization import _finish, show_3d
+
+    if points.shape[0] != 3:
+        raise ValueError("show_3d requires a three-dimensional grid")
+    if backend not in ("matplotlib", "pyvista"):
+        raise ValueError("backend must be matplotlib or pyvista")
+    length = 0.5 * min(spacing) if normal_length is None else float(normal_length)
+    if normals:
+        finite = np.all(np.isfinite(normal_vectors), axis=0)
+        points_n, normal_vectors = points[:, finite], normal_vectors[:, finite]
+    if surface:
+        ax = show_3d(
+            shape,
+            ax=ax,
+            backend=backend,
+            resolution=resolution,
+            bounds=bounds,
+            opacity=opacity,
+            labels=labels,
+            show_bounds=False,
+            display=False,
+        )
+    if backend == "pyvista":
+        if ax is None:
+            from importlib import import_module
+
+            try:
+                pv = import_module("pyvista")
+            except ImportError as exc:
+                raise ImportError(
+                    "Interactive 3D needs simgeometry[interactive]"
+                ) from exc
+            ax = pv.Plotter(off_screen=not display)
+        if nodes and solid_nodes.shape[1]:
+            ax.add_points(
+                solid_nodes.T,
+                color="tab:blue",
+                point_size=10 if point_size is None else 1.25 * point_size,
+                render_points_as_spheres=True,
+                name="solid nodes",
+            )
+        if points.shape[1]:
+            ax.add_points(
+                points.T,
+                color="black",
+                point_size=8 if point_size is None else point_size,
+                render_points_as_spheres=True,
+                name="crossings",
+            )
+        if normals and points_n.shape[1]:
+            ax.add_arrows(
+                points_n.T,
+                normal_vectors.T,
+                mag=length,
+                color="tab:red",
+                name="normals",
+            )
+        if display or save:
+            ax.show(screenshot=str(save) if save else None, auto_close=False)
+        return ax
+    import matplotlib.pyplot as plt
+
+    ax = ax if ax is not None else plt.figure().add_subplot(projection="3d")
+    if not hasattr(ax, "set_zlabel"):
+        raise ValueError("Pass 3D axes to show_3d")
+    size = 12 if point_size is None else point_size
+    if nodes and solid_nodes.shape[1]:
+        ax.scatter(*solid_nodes, s=size, color="tab:blue", alpha=0.5)
+    ax.scatter(*points, s=size, color="black")
+    if normals and points_n.shape[1]:
+        ax.quiver(
+            *points_n,
+            *normal_vectors,
+            length=length,
+            color="tab:red",
+        )
+    return _finish(ax, display, save)
 
 
 @sp.profile("simgeometry.bracketed_edge_geometry", tags=_PROFILE_TAGS)
@@ -73,15 +251,7 @@ def bracketed_edge_geometry(
     periods = np.asarray(shape) * spacing
 
     def wrap(points):
-        points = points.copy()
-        for axis, flag in enumerate(periodic):
-            if flag:
-                offset = (points[axis] - lower[axis]) % periods[axis]
-                # a node's image across the face, built as node + step, can land a
-                # rounding error short of the period; it is the first node
-                offset[periods[axis] - offset <= 1e-9 * periods[axis]] = 0.0
-                points[axis] = lower[axis] + offset
-        return points
+        return _wrap(points, lower, periods, periodic)
 
     fractions, cut = {}, np.zeros(shape, dtype=bool)
     for dim in range(grid.ndim):
@@ -116,7 +286,9 @@ def bracketed_edge_geometry(
                         )
             fractions[dim, side] = fraction
             cut |= np.isfinite(fraction)
-    return BracketedEdgeGeometry(solid, owners, fractions, cut, nodes)
+    return BracketedEdgeGeometry(
+        solid, owners, fractions, cut, nodes, spacing, periodic, tuple(objects)
+    )
 
 
 @dataclass(frozen=True)
@@ -137,6 +309,7 @@ class CutEdges:
     normals: np.ndarray
     object_names: tuple
     exact: bool
+    geometry: object
 
     @property
     def distances(self):
@@ -196,6 +369,57 @@ class CutEdges:
         if display:
             plt.show()
         return ax
+
+    def show_3d(
+        self,
+        *,
+        normals=False,
+        nodes=False,
+        surface=True,
+        backend="matplotlib",
+        ax=None,
+        resolution=48,
+        bounds=None,
+        opacity=0.25,
+        labels=True,
+        point_size=None,
+        normal_length=None,
+        display=True,
+        save=None,
+    ):
+        """Draw the translucent surface, the crossings, and optional normals and nodes.
+
+        Crossings are black, outward normals red arrows (``normal_length``, default
+        half a grid spacing) and the solid grid nodes blue. ``surface``,
+        ``resolution``, ``bounds``, ``opacity`` and ``labels`` go to ``show_3d``.
+        Returns the 3D axes or, for ``backend="pyvista"``, the plotter, which the
+        caller should close; its actors ``"crossings"``, ``"normals"`` and
+        ``"solid nodes"`` hold the points and arrows.
+        """
+        nodes_inside = np.empty((self.grid.ndim, 0))
+        if nodes:
+            solid = self.geometry.node_mask(self.grid).ravel()
+            nodes_inside = self.grid.node_points()[:, solid]
+        return _show_crossings_3d(
+            self.geometry,
+            self.points,
+            self.normals,
+            nodes_inside,
+            tuple(float(h) for h in self.grid.grid_spacing),
+            normals=normals,
+            nodes=nodes,
+            surface=surface,
+            backend=backend,
+            ax=ax,
+            resolution=resolution,
+            bounds=bounds,
+            opacity=opacity,
+            labels=labels,
+            point_size=point_size,
+            normal_length=normal_length,
+            display=display,
+            save=save,
+        )
 
 
 @sp.profile("simgeometry.cut_edges", tags=_PROFILE_TAGS)
@@ -271,6 +495,7 @@ def cut_edges(geometry, grid, *, samples=64, tolerance=1e-10):
         np.array([r[4] for r in records]).reshape(n, grid.ndim).T,
         tuple(r[5] for r in records),
         exact,
+        geometry,
     )
 
 
