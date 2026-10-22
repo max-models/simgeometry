@@ -405,10 +405,13 @@ def test_preview_is_the_split_of_a_real_run(
 
 def test_preview_matches_mpi_compute_dims_for_balanced_sizes() -> None:
     """Where the balanced split is unique, it is also what MPI.Compute_dims picks."""
-    mpi4py = pytest.importorskip("mpi4py.MPI")
+    try:
+        from mpi4py import MPI
+    except (ImportError, RuntimeError):  # RuntimeError: mpi4py without an MPI library
+        pytest.skip("needs mpi4py with an MPI library")
     for size, ndim in [(4, 2), (8, 3), (9, 2), (27, 3), (16, 2)]:
         preview = DomainDecomposition.preview(size, ndim=ndim)
-        assert preview.proc_sizes == list(mpi4py.Compute_dims(size, ndim))
+        assert preview.proc_sizes == list(MPI.Compute_dims(size, ndim))
 
 
 def test_preview_with_processes_per_axis() -> None:
