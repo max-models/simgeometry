@@ -246,13 +246,20 @@ grazing contacts are not crossings.
 `simgeometry.cut_edges.bracketed_edge_geometry()` is the batched geometry path for
 Picnic's Shortley–Weller stencil. It visits fluid nodes with solid neighbours and
 assumes a single crossing in each bracket. Fractions have no numerical lower clamp.
-Picnic applies its own minimum edge fraction before assembling coefficients.
+Picnic applies its own minimum edge fraction before assembling coefficients. Its
+`points` and `normals` are the crossings in world coordinates and the outward normals
+of the entered object, `(ndim, n)` arrays in the order of `fractions` (periodic images
+wrapped into the domain); `crossing_owners` gives each crossing's object.
 
 The full `cut_edges()` inspection can detect multiple crossings and objects lying
 between fluid nodes. It visits every edge, so it is intended for inspection and
 geometry preparation rather than repeated use in a solver timestep. Collection
 hits include each object's interfaces, including interfaces hidden by overlaps;
 Boolean shapes instead expose only the resulting solid's boundary.
+
+On a 3D grid, `show_3d()` on either result draws the translucent surface and the
+crossings, with `normals=True` the outward normals and with `nodes=True` the solid grid
+nodes; `backend="pyvista"` returns a PyVista plotter, otherwise Matplotlib 3D axes.
 
 `diagnose(grid)` reports node overlaps, objects without solid nodes, multiple-hit
 edges, and very short edge distances. These observations do not prove that all
