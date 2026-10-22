@@ -140,7 +140,7 @@ and where `level_set_exact` is true it is the Euclidean signed distance.
 
 | Shape | Level set |
 | --- | --- |
-| `Line`, `Circle`, `Sphere`, `Rectangle`, `Cuboid` | exact |
+| `Line`, `Circle`, `Sphere`, `Rectangle`, `Cuboid` (with or without fillets) | exact |
 | `Polygon`, `Triangle` | exact: distance to the nearest edge, signed by `contains` (one pass per edge) |
 | `Aperture2D` | exact while the plates do not touch |
 | `Cylinder`, `Tube`, `Cone`, `Torus` (any axis, with or without fillets) | exact |
@@ -184,7 +184,8 @@ Einzel lens.
 
 ## Exact geometry and numerical approximations
 
-- Balls, axis-aligned boxes and simple polygons have analytic segment intersections
+- Balls, axis-aligned boxes (also rounded with `fillet`) and simple polygons have
+  analytic segment intersections
   and closest-point distances. Similarity transforms preserve exact closest-point
   queries. General affine transformations preserve analytic segment intersections.
 - Composite segment queries merge operand hits and discard hidden interfaces.

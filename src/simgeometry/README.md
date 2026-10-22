@@ -29,6 +29,7 @@ values; applications can configure their own seeded stream.
 - `simulation_domain.py` - Simulation domain helpers for geometry, grids, and simulation domains.
 - `utils.py` - Utils helpers for geometry, grids, and simulation domains.
 - `_level_set.py` - Exact signed-distance formulas of the primitives and the Illinois root finding on level sets.
+- `_rounded_box.py` - Line intervals, normals and closest points of boxes with rounded edges (`fillet`).
 - `collection.py` - `GeometryCollection`: named objects, overlap precedence, styles, and conductor voltages (`with_voltages`, `voltages_at`, `dirichlet_values`).
 
 The shared `GeometryAPI` adds sections, transforms, Boolean operations, plotting,
