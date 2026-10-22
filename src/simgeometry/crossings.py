@@ -10,6 +10,9 @@ analytic; affine transforms of them stay analytic. Every other shape (Boolean
 combinations, collections, function objects, ...) is sampled: membership is tested at
 ``samples`` points along each step and the first change is bisected, so features
 thinner than ``1 / samples`` of a step can be missed, and the normals are estimated.
+For a shape with a level set (cylinders, tori, Booleans of primitives, ...) the first
+change is refined by Illinois steps on the level set instead, and the normal is its
+gradient.
 
 Conventions: fractions lie in ``(0, 1]``. A crossing at the very start of a step
 (fraction below :data:`START_TOLERANCE`) is not reported, so a particle that stops
@@ -29,6 +32,7 @@ import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
 
+from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.shapes import _component_major
 
@@ -258,14 +262,66 @@ def _sampled(shape, a, d, samples, iterations):
     lo = ts[index]
     hi = ts[index + 1]
     start_state = xp.take_along_axis(state, index[:, None], axis=1)[:, 0]
-    for _ in range(iterations):
-        mid = 0.5 * (lo + hi)
-        same = _contains(shape, a + mid[None, :] * d) == start_state
-        lo = xp.where(same, mid, lo)
-        hi = xp.where(same, hi, mid)
-    t = 0.5 * (lo + hi)
+    t = xp.full(n, xp.nan)
+    rest = xp.flatnonzero(has)  # segments without a membership change need no search
+    level = has_level_set(shape)
+    if level:
+        t, rest = _level_set_refined(shape, a, d, has, lo, hi, iterations)
+    if rest.shape[0]:
+        lo, hi, start_state = lo[rest], hi[rest], start_state[rest]
+        a_rest, d_rest = a[:, rest], d[:, rest]
+        for _ in range(iterations):
+            mid = 0.5 * (lo + hi)
+            same = _contains(shape, a_rest + mid[None, :] * d_rest) == start_state
+            lo = xp.where(same, mid, lo)
+            hi = xp.where(same, hi, mid)
+        t[rest] = 0.5 * (lo + hi)
     t = xp.where(has & (t > START_TOLERANCE), t, xp.inf)
-    return t, _estimated_normal(shape, a + xp.where(has, t, 0.0)[None, :] * d)
+    point = a + xp.where(has, t, 0.0)[None, :] * d
+    if level:
+        return t, _level_set_normal(shape, point)
+    return t, _estimated_normal(shape, point)
+
+
+def _level_set_refined(shape, a, d, has, lo, hi, iterations):
+    """Crossings ``(n,)`` in the sampled brackets where the level set changes sign.
+
+    Returns the fractions (NaN where not refined) and the indices of the segments
+    left for bisection: those whose level set does not change sign over the bracket
+    and those the Illinois steps did not settle.
+    """
+    n = a.shape[1]
+    t = xp.full(n, xp.nan)
+    f_lo = xp.asarray(shape.level_set(a + lo[None, :] * d), dtype=float)
+    f_hi = xp.asarray(shape.level_set(a + hi[None, :] * d), dtype=float)
+    secant = has & (f_lo * f_hi < 0)
+    chosen = xp.flatnonzero(secant)
+    if chosen.shape[0]:
+        roots, _, _, done = illinois_roots(
+            lambda p: xp.asarray(shape.level_set(p), dtype=float),
+            a[:, chosen],
+            d[:, chosen],
+            lo[chosen],
+            hi[chosen],
+            f_lo[chosen],
+            f_hi[chosen],
+            2.0**-iterations,
+            array_xp=xp,
+        )
+        t[chosen[done]] = roots[done]
+        secant[chosen[~done]] = False
+    return t, xp.flatnonzero(has & ~secant)
+
+
+def _level_set_normal(shape, points):
+    """Unit gradient of the level set at the points: out of the contains-region."""
+    extent = np.asarray(xp.to_numpy(shape.upper_bound), float) - np.asarray(
+        xp.to_numpy(shape.lower_bound), float
+    )
+    scale = float(np.max(extent)) if np.all(np.isfinite(extent)) else 1.0
+    gradient = level_set_gradient(shape, points, 1e-7 * scale, array_xp=xp)
+    length = xp.sqrt(xp.sum(gradient * gradient, axis=0))
+    return gradient / xp.where(length > 0, length, xp.nan)[None, :]
 
 
 def _contains(shape, points):

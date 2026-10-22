@@ -6,12 +6,19 @@ from operator import add, sub
 
 import cunumpy as xp
 
+from simgeometry._level_set import box_distance
 from simgeometry._types import Array, BoundsLike, ConfigValue
 from simgeometry.shapes import Shape3D, _component_major
 
 
 class Cuboid(Shape3D):
-    """Represent a cuboid geometry object."""
+    """Represent a cuboid geometry object.
+
+    Its :meth:`level_set` is the exact signed distance to the box.
+    """
+
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -158,6 +165,12 @@ class Cuboid(Shape3D):
         upper = xp.asarray(self.upper_bound, dtype=float)[:, None]
         inside = xp.all((points >= lower) & (points <= upper), axis=0)
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the cuboid."""
+        lower = xp.asarray(self.lower_bound, dtype=float)[:, None]
+        upper = xp.asarray(self.upper_bound, dtype=float)[:, None]
+        return box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower))
 
     def volume(self) -> float:
         """Calculate the volume of the cuboid."""

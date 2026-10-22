@@ -10,6 +10,7 @@ import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
 
+from simgeometry._level_set import segment_distance
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry._types import Array
 from simgeometry.api import GeometryAPI
@@ -104,9 +105,19 @@ class Shape(GeometryAPI, ABC):
     negated and the shape extends over the whole simulation domain.  The
     bounding box still describes the geometry itself, so consumers must not
     use it to skip points for inverted shapes.
+
+    Shapes with an analytic description also have a :meth:`level_set`
+    (``has_level_set``); ``level_set_exact`` says whether it is the exact
+    Euclidean signed distance.
     """
 
     _inverted: bool = False
+    #: Whether :meth:`level_set` is defined. Shapes known only through their
+    #: membership test (function objects, ``Aperture3D``) have none.
+    has_level_set: bool = False
+    #: Whether :meth:`level_set` is the exact Euclidean signed distance; otherwise
+    #: it is a bound on it.
+    level_set_exact: bool = False
 
     def __init__(
         self,
@@ -158,6 +169,25 @@ class Shape(GeometryAPI, ABC):
         """
         points = _component_major(points, self.ndim)
         return xp.asarray([bool(self.contains(p)) for p in points.T], dtype=bool)
+
+    def level_set(self, points: Array) -> Array:
+        """Level-set values of the ``(ndim, n)`` points: negative inside, positive outside.
+
+        The sign follows :meth:`~simgeometry.api.GeometryAPI.signed_distance`, so it
+        flips for an inverted shape, and the boundary is the zero level (where
+        :meth:`contains_points` may go either way). The magnitude never exceeds the
+        distance to the boundary; with ``level_set_exact`` it equals it. Values are
+        on the active cunumpy backend, like :meth:`contains_points`. Raises
+        ``NotImplementedError`` when ``has_level_set`` is False.
+        """
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self).__name__} has no level set")
+        values = self._level_set(_component_major(points, self.ndim))
+        return -values if self.inverted else values
+
+    def _level_set(self, points: Array) -> Array:
+        """The level set of the geometry itself, before inversion."""
+        raise NotImplementedError(f"{type(self).__name__} has no level set")
 
     @sp.profile("simgeometry.node_mask", tags=_PROFILE_TAGS)
     def node_mask(self, grid: Grid) -> np.ndarray:
@@ -346,6 +376,23 @@ class Shape2D(Shape):
     def _corner_loops(self) -> list[np.ndarray]:
         """The unrefined ``(2, n)`` boundary loops; polygonal shapes define this."""
         raise NotImplementedError(f"{type(self).__name__} has no outline")
+
+    def _edge_level_set(self, points: Array) -> Array:
+        """Distance to the edges of :meth:`_corner_loops`, negative where the geometry is.
+
+        The sign comes from :meth:`contains_points`, so it agrees with membership
+        everywhere off the boundary. This is the exact signed distance when the loops
+        are the boundary of the region (a simple polygon, disjoint plates); extra
+        edges inside the region only make it a bound.
+        """
+        loops = self._corner_loops()
+        starts = np.concatenate(loops, axis=1)
+        ends = np.concatenate([np.roll(loop, -1, axis=1) for loop in loops], axis=1)
+        distance = segment_distance(points, xp.asarray(starts), xp.asarray(ends))
+        inside = self.contains_points(points)
+        if self.inverted:
+            inside = ~inside
+        return xp.where(inside, -distance, distance)
 
     def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
         """The loops of :meth:`_corner_loops`, refined; curved shapes override this."""

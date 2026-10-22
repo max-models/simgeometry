@@ -88,3 +88,81 @@ def test_pyvista_offscreen_clip_widget(tmp_path):
         assert (tmp_path / "interactive.png").stat().st_size > 0
     finally:
         viewer.close()
+
+
+def _lens():
+    from simgeometry import GeometryCollection, Tube
+
+    return GeometryCollection(
+        {
+            "outer": Tube((0, 0, -1), (0, 0, -0.4), 0.5, 0.7),
+            "middle": Tube((0, 0, -0.2), (0, 0, 0.2), 0.5, 0.7),
+            "probe": Sphere((0, 0, 0.8), 0.2),
+        },
+        voltages={"outer": 0.0, "middle": 1.0e4},
+    )
+
+
+def test_pyvista_draws_the_surfaces_with_plasma_plots(tmp_path):
+    pytest.importorskip("pyvista")
+    pytest.importorskip("plasma_plots")
+    viewer = _lens().show_3d(
+        backend="pyvista", resolution=16, display=False, save=tmp_path / "lens.png"
+    )
+    try:
+        assert len(viewer.meshes) >= 3
+        assert viewer.legend is not None
+        assert (tmp_path / "lens.png").stat().st_size > 0
+    finally:
+        viewer.close()
+
+
+def test_pyvista_colors_conductors_by_voltage():
+    pytest.importorskip("pyvista")
+    pytest.importorskip("plasma_plots")
+    viewer = _lens().show_3d(
+        backend="pyvista", resolution=16, display=False, color_by="voltage"
+    )
+    try:
+        voltages = [
+            set(mesh.point_data["voltage"].tolist())
+            for mesh in viewer.meshes
+            if "voltage" in mesh.point_data
+        ]
+        assert {0.0} in voltages and {1.0e4} in voltages
+        assert any(np.isnan(next(iter(v))) for v in voltages)  # the probe
+        assert viewer.scalar_bars
+    finally:
+        viewer.close()
+
+
+def test_color_by_voltage_needs_pyvista_and_voltages():
+    with pytest.raises(ValueError, match="backend='pyvista'"):
+        _lens().show_3d(color_by="voltage", display=False)
+    with pytest.raises(ValueError, match="voltages"):
+        Sphere((0, 0, 0), 1).show_3d(
+            backend="pyvista", color_by="voltage", display=False
+        )
+
+
+def test_level_set_quantity_matches_the_level_set():
+    ball = Sphere((0, 0, 0), 1)
+    field = ball.evaluate(x=[0.0, 0.5, 2.0], y=0.0, z=0.0, quantity="level_set")
+    np.testing.assert_allclose(field.values, [-1.0, -0.5, 1.0])
+
+
+def test_level_set_field_is_drawn_by_plasma_plots():
+    pytest.importorskip("pyvista")
+    plasma_plots = pytest.importorskip("plasma_plots")
+    field = Sphere((0.5, 0, 0), 1).level_set_field(resolution=12)
+    assert field.dims == ("eta1", "eta2", "eta3")
+    assert {"X", "Y", "Z"} <= set(field.coords)
+    assert float(field.X.min()) == pytest.approx(-0.5)
+    assert float(field.min()) < 0 < float(field.max())
+    viewer = plasma_plots.pyvista_plots.pyvista_isosurface(
+        field, values=[0.0], show_domain=False
+    )
+    try:
+        assert viewer.meshes
+    finally:
+        viewer.close()

@@ -11,7 +11,9 @@ from simgeometry.objects import (
     Aperture2D,
     Aperture3D,
     Circle,
+    Cone,
     Cuboid,
+    Cylinder,
     FunctionObject2D,
     FunctionObject3D,
     Line,
@@ -19,7 +21,9 @@ from simgeometry.objects import (
     Polyline,
     Rectangle,
     Sphere,
+    Torus,
     Triangle,
+    Tube,
 )
 from simgeometry.simulation_domain import SimulationDomain
 
@@ -37,7 +41,9 @@ __all__ = [
     "Aperture2D",
     "Aperture3D",
     "Circle",
+    "Cone",
     "Cuboid",
+    "Cylinder",
     "FunctionObject2D",
     "FunctionObject3D",
     "Line",
@@ -45,5 +51,7 @@ __all__ = [
     "Polyline",
     "Rectangle",
     "Sphere",
+    "Torus",
     "Triangle",
+    "Tube",
 ]

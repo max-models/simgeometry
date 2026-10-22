@@ -40,6 +40,9 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
+      - name: Install a virtual display for the PyVista scenes
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1 libglx-mesa0
+
       - name: Install project
         run: |
           uv sync --extra docs
@@ -48,4 +51,4 @@ jobs:
 
       - name: Execute tutorials
         working-directory: docs
-        run: DOCS_PYTHON="$(pwd)/../.venv/bin/python" npx starlight-notebooks execute --force
+        run: DOCS_PYTHON="$(pwd)/../.venv/bin/python" xvfb-run -a npx starlight-notebooks execute --force

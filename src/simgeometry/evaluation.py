@@ -90,8 +90,17 @@ def evaluate(
         )
     elif quantity == "signed_distance":
         values = shape.signed_distance(points)
+    elif quantity == "level_set":
+        # Shapes without an analytic level set fall back to the sampled distance.
+        values = (
+            shape.level_set(points)
+            if getattr(shape, "has_level_set", False)
+            else shape.signed_distance(points)
+        )
     else:
-        raise ValueError("quantity must be occupancy, labels, or signed_distance")
+        raise ValueError(
+            "quantity must be occupancy, labels, signed_distance, or level_set"
+        )
     result = xr.DataArray(
         np.asarray(values).reshape(broadcast[0].shape),
         dims=broadcast[0].dims,
@@ -106,3 +115,29 @@ def evaluate(
         }
     result.attrs["sampling"] = "direct geometry queries; host arrays; no MPI gather"
     return result
+
+
+def level_set_field(shape, *, resolution=64, bounds=None):
+    """The level set on a 3D grid, in the layout of plasma-plots' 3D views.
+
+    plasma-plots draws fields with logical dimensions ``eta1, eta2, eta3`` and
+    physical coordinates ``X, Y, Z``; here the logical coordinates run from 0 to 1
+    along the Cartesian axes. ``field.plasma.plot.isosurface(values=[0])`` then
+    draws the shape's surface. Negative inside, like ``signed_distance``.
+    """
+    if shape.ndim != 3:
+        raise ValueError("level_set_field requires three-dimensional geometry")
+    field = evaluate(shape, resolution=resolution, bounds=bounds, quantity="level_set")
+    dims = dict(zip(field.dims, ("eta1", "eta2", "eta3")))
+    physical = {
+        upper: (dims[name], field[name].values)
+        for name, upper in zip(field.dims, ("X", "Y", "Z"))
+    }
+    field = field.drop_vars(list(dims)).rename(dims)
+    logical = {
+        eta: np.linspace(0.0, 1.0, field.sizes[eta]) for eta in ("eta1", "eta2", "eta3")
+    }
+    field = field.assign_coords(logical).assign_coords(physical)
+    field.name = "level set"
+    field.attrs["label"] = "level set"
+    return field

@@ -1,6 +1,7 @@
 """Optional 1D/2D inspection and 3D surface viewers.
 
-Matplotlib is the default backend; PyVista adds interactive clipping widgets.
+Matplotlib is the default backend. The PyVista backend draws the surfaces with
+plasma-plots (``pyvista_surfaces``) and adds interactive clipping widgets.
 Plots are sampled views. Increase resolution before interpreting small features.
 """
 
@@ -218,20 +219,27 @@ def show_3d(
     backend="matplotlib",
     display=True,
     save=None,
+    t=0.0,
     **kwargs,
 ):
     """Render surfaces; return axes or an optional PyVista Plotter.
 
     clip=(origin, normal) retains the positive half-space, without caps.
     clip=True enables a PyVista clipping widget. PyVista callers own and should
-    close the returned plotter. No MPI operations are performed.
+    close the returned plotter. color_by="voltage" (PyVista) colors the
+    conductors of a collection by their voltage at time ``t``; objects without
+    a voltage are grey. No MPI operations are performed.
     """
     if shape.ndim != 3:
         raise ValueError("show_3d requires three-dimensional geometry")
     if backend not in ("matplotlib", "pyvista"):
         raise ValueError("backend must be matplotlib or pyvista")
-    if color_by not in (None, "name"):
-        raise ValueError("color_by must be 'name' or None")
+    if color_by not in (None, "name", "voltage"):
+        raise ValueError("color_by must be 'name', 'voltage' or None")
+    if color_by == "voltage" and backend != "pyvista":
+        raise ValueError("color_by='voltage' needs backend='pyvista'")
+    if color_by == "voltage" and not getattr(shape, "conductors", ()):
+        raise ValueError("color_by='voltage' needs a collection with voltages")
     if grid is True:
         raise ValueError("Pass a Grid object, or use domain.show_3d(grid=True)")
     if grid is not None and grid.ndim != 3:
@@ -247,6 +255,11 @@ def show_3d(
         except ImportError as exc:
             raise ImportError("Interactive 3D needs simgeometry[interactive]") from exc
         plotter = ax if ax is not None else pv.Plotter(off_screen=not display)
+        voltages = shape.voltages_at(t) if color_by == "voltage" else {}
+        # plasma-plots draws the surfaces; the clipping widget, wireframes and extra
+        # add_mesh options need PyVista's own add_mesh.
+        surfaces, surface_colors, surface_opacity = {}, {}, {}
+        use_surfaces = clip is not True and not wireframe and not kwargs
     else:
         import matplotlib.pyplot as plt
         from matplotlib.colors import to_rgba
@@ -288,16 +301,26 @@ def show_3d(
             data = pv.PolyData(
                 vertices, np.column_stack((np.full(len(faces), 3), faces)).ravel()
             )
-            add = plotter.add_mesh_clip_plane if clip is True else plotter.add_mesh
-            add(
-                data,
-                color=to_rgb(chosen),
-                opacity=alpha,
-                style="wireframe" if wireframe else "surface",
-                label=name if labels else None,
-                **style,
-                **kwargs,
-            )
+            if color_by == "voltage":
+                data.point_data["voltage"] = np.full(
+                    data.n_points, voltages.get(name, np.nan)
+                )
+            if use_surfaces and not style:
+                surfaces[name] = data
+                surface_colors[name] = to_rgb(chosen)
+                surface_opacity[name] = alpha
+            else:
+                add = plotter.add_mesh_clip_plane if clip is True else plotter.add_mesh
+                add(
+                    data,
+                    color=None if color_by == "voltage" else to_rgb(chosen),
+                    scalars="voltage" if color_by == "voltage" else None,
+                    opacity=alpha,
+                    style="wireframe" if wireframe else "surface",
+                    label=name if labels else None,
+                    **style,
+                    **kwargs,
+                )
             if normals:
                 stride = max(1, len(mesh.cells) // 64)
                 plotter.add_arrows(
@@ -328,6 +351,17 @@ def show_3d(
                     length=float(np.max(np.asarray(upper) - lower)) * 0.05,
                 )
     if backend == "pyvista":
+        if surfaces:
+            from plasma_plots.pyvista_plots import pyvista_surfaces
+
+            pyvista_surfaces(
+                surfaces,
+                colors=surface_colors,
+                opacity=surface_opacity,
+                scalars="voltage" if color_by == "voltage" else None,
+                legend=labels,
+                plotter=plotter,
+            )
         if show_bounds:
             plotter.show_bounds(bounds=np.array([lower, upper]).T.ravel())
         if grid is not None:
@@ -336,7 +370,7 @@ def show_3d(
                 plotter.add_lines(segment, color="gray", width=1)
             if nodes:
                 plotter.add_points(grid.node_points().T, point_size=4)
-        if labels and objects:
+        if labels and len(surfaces) < len(objects) and color_by != "voltage":
             plotter.add_legend()
         if display or save:
             plotter.show(screenshot=str(save) if save else None, auto_close=False)

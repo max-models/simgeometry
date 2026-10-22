@@ -11,9 +11,14 @@ from simgeometry.utils import vertices_to_bounds
 
 
 class Triangle(Shape2D):
-    """Represent a triangular geometry object."""
+    """Represent a triangular geometry object.
+
+    Its :meth:`level_set` is the exact signed distance to its edges.
+    """
 
     exact_outline = True
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -138,6 +143,10 @@ class Triangle(Shape2D):
             v = (dot00 * dot12 - dot01 * dot02) * inv_denom
             inside = in_box & (u >= 0) & (v >= 0) & (u + v <= 1)
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the triangle's edges."""
+        return self._edge_level_set(points)
 
     def _corner_loops(self) -> list[np.ndarray]:
         """The three vertices as one ``(2, 3)`` loop."""

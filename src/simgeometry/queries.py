@@ -2,6 +2,9 @@
 
 All coordinates and results here are NumPy host arrays. The bisection helper
 batches containment queries so GPU implementations can still accelerate them.
+Shapes with a level set (``shape.has_level_set``) have their crossings refined by
+Illinois (modified regula falsi) steps on it instead of bisection, and exact level
+sets give ``signed_distance`` directly.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
 
+from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.objects import (
     Circle,
@@ -39,12 +43,25 @@ def points_array(points, ndim):
     return p, single
 
 
+def level_values(shape, points):
+    """``shape.level_set`` of host points, as a host float array."""
+    return np.asarray(xp.to_numpy(shape.level_set(points)), dtype=float)
+
+
 def intersection_fractions(obj, outside, inside, *, iterations=48, wrap=None):
-    """Bisect bracketed outside-to-inside edges; return raw, unclamped fractions.
+    """Locate bracketed outside-to-inside edge crossings; return raw, unclamped fractions.
 
     Endpoints have shape (ndim, n). Each segment must bracket a single crossing;
     use intersect_segment for multiple crossings or equal-membership endpoints.
     ``wrap`` maps periodic images into the domain for membership tests.
+
+    Membership (``contains``) decides the brackets. If the object has a level set
+    and its values at the two ends have opposite signs, the crossing is its root,
+    found from the linear interpolation of the end values and a few Illinois
+    steps, to within ``2**-iterations`` of the edge (typically to round-off after
+    3 to 6 level-set evaluations). Other edges, and any the secant steps do not
+    settle, are bisected ``iterations`` times on membership and return the end of
+    the final interval inside the object.
     """
     outside, _ = points_array(outside, obj.ndim)
     inside, _ = points_array(inside, obj.ndim)
@@ -57,14 +74,46 @@ def intersection_fractions(obj, outside, inside, *, iterations=48, wrap=None):
 
     if mask(obj, wrap(outside)).any() or not mask(obj, wrap(inside)).all():
         raise ValueError("Bisection requires outside-to-inside brackets")
-    lo, hi = np.zeros(outside.shape[1]), np.ones(outside.shape[1])
+    n = outside.shape[1]
+    lo, hi = np.zeros(n), np.ones(n)
     step = inside - outside
-    for _ in range(iterations):
-        mid = (lo + hi) / 2
-        hit = mask(obj, wrap(outside + mid * step))
-        hi = np.where(hit, mid, hi)
-        lo = np.where(hit, lo, mid)
-    return hi
+    fractions = np.full(n, np.nan)
+    pending = np.ones(n, dtype=bool)
+    if has_level_set(obj) and n:
+
+        def level(points):
+            return level_values(obj, wrap(points))
+
+        f_out, f_in = level(outside), level(inside)
+        secant = np.flatnonzero((f_out > 0) & (f_in < 0))
+        if secant.size:
+            t, a, b, done = illinois_roots(
+                level,
+                outside[:, secant],
+                step[:, secant],
+                lo[secant],
+                hi[secant],
+                f_out[secant],
+                f_in[secant],
+                2.0**-iterations,
+            )
+            fractions[secant[done]] = t[done]
+            pending[secant[done]] = False
+            # unsettled edges keep their narrowed bracket for the bisection
+            lo[secant[~done]], hi[secant[~done]] = a[~done], b[~done]
+    rest = np.flatnonzero(pending)
+    if rest.size:
+        lo, hi = lo[rest], hi[rest]
+        start, step = outside[:, rest], step[:, rest]
+        # brackets narrowed by the secant steps need fewer halvings
+        width = float(np.max(hi - lo)) * 2.0**iterations
+        for _ in range(min(iterations, max(1, int(np.ceil(np.log2(width)))))):
+            mid = (lo + hi) / 2
+            hit = mask(obj, wrap(start + mid * step))
+            hi = np.where(hit, mid, hi)
+            lo = np.where(hit, lo, mid)
+        fractions[rest] = hi
+    return fractions
 
 
 @dataclass(frozen=True)
@@ -165,9 +214,28 @@ def _candidates(shape, a, b, samples, tolerance):
     if int(samples) != samples or samples < 2:
         raise ValueError("samples must be an integer >= 2")
     ts = np.linspace(0, 1, int(samples) + 1)
-    states = mask(shape, a[:, None] + d[:, None] * ts)
+    points = a[:, None] + d[:, None] * ts
+    states = mask(shape, points)
     changes = np.flatnonzero(states[:-1] != states[1:])
     hits = []
+    if has_level_set(shape) and changes.size:
+        # refine the sampled membership changes on the level set where it changes
+        # sign too, all at once; the others are bisected below
+        values = level_values(shape, points)
+        secant = changes[values[changes] * values[changes + 1] < 0]
+        if secant.size:
+            t, _, _, done = illinois_roots(
+                lambda p: level_values(shape, p),
+                np.repeat(a[:, None], secant.size, axis=1),
+                np.repeat(d[:, None], secant.size, axis=1),
+                ts[secant],
+                ts[secant + 1],
+                values[secant],
+                values[secant + 1],
+                2.0**-48,
+            )
+            hits.extend(float(v) for v in t[done])
+            changes = np.setdiff1d(changes, secant[done])
     for i in changes:
         lo, hi = ts[i], ts[i + 1]
         for _ in range(48):
@@ -349,6 +417,9 @@ def closest_point(shape, points, *, resolution=64, bounds=None):
 @sp.profile("simgeometry.signed_distance", tags=_PROFILE_TAGS)
 def signed_distance(shape, points, *, resolution=64, bounds=None):
     p, single = points_array(points, shape.ndim)
+    if has_level_set(shape) and getattr(shape, "level_set_exact", False):
+        distance = level_values(shape, p)
+        return float(distance[0]) if single else distance
     q = closest_point(shape, p, resolution=resolution, bounds=bounds)
     distance = np.linalg.norm(p - q, axis=0)
     distance = np.where(mask(shape, p), -distance, distance)
@@ -429,6 +500,13 @@ def surface_normal(shape, points, *, scale=None):
                 n[:, i] = outward[edge]
             if shape.inverted:
                 n = -n
+    elif has_level_set(shape):
+        # the gradient of the level set points out of the region where it is negative
+        extent = float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
+        scale = extent if scale is None else float(scale)
+        if not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Normal sampling scale must be positive and finite")
+        n = level_set_gradient(shape, p, 1e-7 * scale)
     else:
         scale = (
             float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))

@@ -26,7 +26,13 @@ class BooleanShape(Shape):
 
     Bounds conservatively enclose operands. ``inverted`` indicates the result
     may be unbounded, so sampling requires explicit bounds in that case.
+
+    When both operands have a level set, so does the result: the minimum (union),
+    maximum (intersection) or ``max(a, -b)`` (difference) of theirs. That is a valid
+    level set and a bound on the distance, but not the exact distance.
     """
+
+    level_set_exact = False
 
     def __init__(self, left, right, operation):
         if left.ndim != right.ndim:
@@ -50,6 +56,26 @@ class BooleanShape(Shape):
         if self.operation == "intersection":
             return a & b
         return a & ~b
+
+    @property
+    def has_level_set(self):
+        """Whether both operands have a level set."""
+        return bool(
+            getattr(self.left, "has_level_set", False)
+            and getattr(self.right, "has_level_set", False)
+        )
+
+    def level_set(self, points):
+        """Min/max combination of the operands' level sets; see the class docstring."""
+        if not self.has_level_set:
+            raise NotImplementedError("Both Boolean operands need a level set")
+        points = _component_major(points, self.ndim)
+        a, b = self.left.level_set(points), self.right.level_set(points)
+        if self.operation == "union":
+            return xp.minimum(a, b)
+        if self.operation == "intersection":
+            return xp.maximum(a, b)
+        return xp.maximum(a, -b)
 
     def contains(self, coords):
         return bool(
@@ -164,7 +190,13 @@ def _shapely_ring(ring, *, counter_clockwise):
 
 
 class TransformedShape(Shape):
-    """Independent affine image of a source, mapping p to matrix @ p + offset."""
+    """Independent affine image of a source, mapping p to matrix @ p + offset.
+
+    The level set is the source's at the mapped-back point, times the smallest
+    singular value of ``matrix``, which keeps it a bound on the distance. Rigid
+    motions and uniform scalings (similarities) keep an exact level set exact;
+    nonuniform scalings and shears do not.
+    """
 
     def __init__(self, source, matrix, offset=None):
         self.source = copy.deepcopy(source)
@@ -183,6 +215,9 @@ class TransformedShape(Shape):
         except np.linalg.LinAlgError as exc:
             raise ValueError("Transform must be invertible") from exc
         vertices = self.matrix @ corners(source) + self.offset[:, None]
+        singular = np.linalg.svd(self.matrix, compute_uv=False)
+        self._stretch = float(singular.min())
+        self._similarity = bool(np.allclose(singular, self._stretch, rtol=1e-12))
         self._inverted = source.inverted
         self._bc = getattr(source, "_bc", None)
         self._bc_type = getattr(source, "_bc_type", "dirichlet")
@@ -195,6 +230,24 @@ class TransformedShape(Shape):
 
     def contains(self, coords):
         return self.source.contains(self.inverse @ (np.asarray(coords) - self.offset))
+
+    @property
+    def has_level_set(self):
+        """Whether the source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    @property
+    def level_set_exact(self):
+        """Exact for an exact source under a rigid motion or uniform scaling."""
+        return bool(getattr(self.source, "level_set_exact", False) and self._similarity)
+
+    def level_set(self, points):
+        """The source's level set, scaled by the smallest stretch of the transform."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = _component_major(points, self.ndim)
+        local = xp.asarray(self.inverse) @ (points - xp.asarray(self.offset)[:, None])
+        return self._stretch * self.source.level_set(local)
 
     def outlines(self, max_spacing=None):
         """The source's outline loops, transformed (2D only); see ``Shape2D.outlines``.
@@ -373,6 +426,21 @@ class Section(Shape):
 
     def contains(self, coords):
         return self.source.contains(self._to_parent(np.atleast_1d(coords)))
+
+    #: A 3D distance restricted to a plane only bounds the in-plane distance.
+    level_set_exact = False
+
+    @property
+    def has_level_set(self):
+        """Whether the sliced source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    def level_set(self, points):
+        """The source's level set on the plane: a bound on the in-plane distance."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = np.asarray(xp.to_numpy(_component_major(points, self.ndim)), float)
+        return self.source.level_set(self._to_parent(points))
 
     def labels(self, points):
         if not hasattr(self.source, "labels"):

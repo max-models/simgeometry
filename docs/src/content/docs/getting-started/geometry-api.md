@@ -4,7 +4,7 @@ description: Plotting, sections, labelled sampling, surface queries and cut-edge
 ---
 
 Install `simgeometry[plot]` for plotting, evaluation and surface meshing, or
-`simgeometry[interactive]` for the optional PyVista viewer. The base package keeps
+`simgeometry[interactive]` for the optional PyVista viewer, drawn with plasma-plots. The base package keeps
 NumPy, cunumpy, maybempi and mpiarray as its only runtime dependencies.
 
 ```python
@@ -25,6 +25,7 @@ shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
 | --- | --- | --- |
 | `contains(point)` | One coordinate vector | Boolean |
 | `contains_points(points)` | `(ndim, n)` array | Boolean array on the selected cunumpy backend |
+| `level_set(points)` | `(ndim, n)` array | Signed level set on the selected cunumpy backend, negative inside |
 | `evaluate(x=..., y=..., z=...)` | Scalars, coordinate sequences or DataArrays | Host `xarray.DataArray` |
 | `node_mask(grid)` | Grid | Host boolean array with grid shape |
 | `slice(z=value)` | One fixed coordinate | Queryable section |
@@ -35,6 +36,7 @@ shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
 | `intersect_segment(start, end)` | Two coordinate vectors | Ordered hits, fractions, normals and crossing directions |
 | `cut_edges(grid)` | Grid | All detected edge hits with object identities |
 | `cell_fractions(grid)` | Grid | Approximate solid volume and face fractions |
+| `collection.dirichlet_values(grid, t=...)` | Grid or `(ndim, n)` | Host labels and voltages; NaN outside conductors |
 | `to_mesh()` | Resolution and optional bounds | Vertices, connectivity, centres, normals and sampling spacing |
 
 Inspection and meshing run on the calling process and do not implicitly gather
@@ -98,6 +100,80 @@ approximations; increase `resolution` to inspect small features. PyVista's
 [plane widget](https://docs.pyvista.org/api/plotting/_autosummary/pyvista.plotter.add_mesh_clip_plane)
 provides the interactive clipping behavior.
 
+Without `clip=True`, wireframes or extra PyVista options, the PyVista backend draws the
+surfaces with plasma-plots' `pyvista_surfaces`, one colour per object. For a collection
+with voltages, `color_by="voltage"` colours each conductor by its voltage at time `t`
+(other objects grey):
+
+```python
+viewer = lens.show_3d(backend="pyvista", color_by="voltage", t=0.0)
+```
+
+`level_set_field(resolution=...)` samples the level set on a grid in the layout of
+plasma-plots' 3D views (`eta1`, `eta2`, `eta3` with physical `X`, `Y`, `Z`), so any of
+its levels can be drawn as an isosurface:
+
+```python
+import plasma_plots
+
+field = shell.level_set_field(resolution=64)
+field.plasma.plot.isosurface(values=[0.0, 0.1], show_domain=False)
+```
+
+In a notebook, `plasma_plots.scene(plotter)` shows a plotter as an interactive scene,
+also on these docs pages.
+
+## Level sets
+
+Analytic shapes have `level_set(points)` (`has_level_set` is true): negative inside,
+positive outside and zero on the boundary, with the sign of `signed_distance`, so it
+flips for inverted shapes. Its magnitude never exceeds the distance to the boundary,
+and where `level_set_exact` is true it is the Euclidean signed distance.
+
+| Shape | Level set |
+| --- | --- |
+| `Line`, `Circle`, `Sphere`, `Rectangle`, `Cuboid` | exact |
+| `Polygon`, `Triangle` | exact: distance to the nearest edge, signed by `contains` (one pass per edge) |
+| `Aperture2D` | exact while the plates do not touch |
+| `Cylinder`, `Tube`, `Cone`, `Torus` (any axis, with or without fillets) | exact |
+| `a \| b`, `a & b`, `a - b` | `min(a, b)`, `max(a, b)`, `max(a, -b)`: a bound, not exact |
+| rotations, translations, reflections, uniform scaling | exact if the source is |
+| nonuniform scaling, shears | the source's times the smallest stretch: a bound |
+| sections, collections | the source's on the plane, the minimum over the objects: a bound |
+| `FunctionObject2D/3D`, `Aperture3D`, `Polyline` | none |
+
+Where a shape has a level set, grid-edge crossings (`intersection_fractions`,
+`bracketed_edge_geometry`, the sampled path of `cut_edges` and `crossings`) start from
+the linear interpolation of the level set at the two ends of the edge and refine the
+root with a few Illinois (modified regula falsi) steps, instead of bisecting `contains`
+48 times. Membership still decides which edges are cut; an edge whose level-set values
+do not change sign (a node exactly on the surface, a periodic seam) is bisected as
+before. Crossings land on the surface to round-off after about 8 evaluations per edge
+instead of 50. `signed_distance` returns an exact level set directly, surface normals
+of other level-set shapes are its gradient, and `to_mesh` contours it, so meshes of
+these shapes place their vertices between samples.
+
+`cell_fractions` keeps its subcell quadrature: interpolating corner level-set values
+(AMReX-style) is more accurate in smooth cut cells but less accurate at corners and
+misses features thinner than a cell, which the subcell samples catch.
+
+## Conductors
+
+`GeometryCollection(objects, voltages={"electrode": 1000.0, "wall": 0.0})` makes
+named objects conductors. A voltage is a number or a function of the time `t`.
+`collection.with_voltages(electrode=500.0)` returns the same objects, bounds and styles
+with other voltages (a mapping works for any name; `None` removes a voltage), so a
+parameter scan does not rebuild the geometry. `voltages_at(t)` evaluates the voltages
+and `conductors` lists the names with one.
+
+`collection.dirichlet_values(grid, t=t)` returns `DirichletValues` with `labels` and
+`voltages` per node (grid-shaped), or per point for `(ndim, n)` points. Labels follow
+`labels()`: 0 outside every object, the last listed object winning in overlaps. The
+voltage is NaN outside the conductors, including inside an object without a voltage;
+`values.conductor` marks the nodes a field solver fixes. See the
+[conductors tutorial](/simgeometry/tutorials/conductors-and-level-sets/) for an
+Einzel lens.
+
 ## Exact geometry and numerical approximations
 
 - Balls, axis-aligned boxes and simple polygons have analytic segment intersections
@@ -112,10 +188,11 @@ provides the interactive clipping behavior.
   one incident face. A generic query away from a surface returns NaN.
 - Closest-point and distance queries on general shapes use a sampled contour or
   triangular mesh. `resolution` controls the surface sampling; no exact signed
-  distance is inferred from an arbitrary boolean function.
+  distance is inferred from an arbitrary boolean function. Shapes with an exact level
+  set return it from `signed_distance`.
 - Surface meshing uses scikit-image's
   [marching contours/cubes](https://scikit-image.org/docs/stable/api/skimage.measure.html).
-  Primitive balls and boxes use continuous implicit values; other shapes use
+  Shapes with a level set use it as continuous implicit values; other shapes use
   membership samples. Mesh spacing is metadata, not a certified error bound.
   A surface touching sampling bounds can be open.
 - `sample_interior()` uses uniform rejection sampling and a finite `max_draws`.

@@ -12,9 +12,15 @@ from simgeometry.utils import vertices_to_bounds
 
 
 class Polygon(Shape2D):
-    """Represent a polygon geometry object."""
+    """Represent a polygon geometry object.
+
+    Its :meth:`level_set` is the exact signed distance: the distance to the nearest
+    edge, negative where :meth:`contains_points` is true. It costs one pass per edge.
+    """
 
     exact_outline = True
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -180,3 +186,7 @@ class Polygon(Shape2D):
         inside &= (points[0] >= lower[0]) & (points[0] < upper[0])
         inside &= (points[1] >= lower[1]) & (points[1] < upper[1])
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: ndarray) -> ndarray:
+        """Exact signed distance to the polygon's edges."""
+        return self._edge_level_set(points)

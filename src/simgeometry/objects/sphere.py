@@ -9,7 +9,13 @@ from simgeometry.shapes import Shape3D, _component_major
 
 
 class Sphere(Shape3D):
-    """Represent a spherical geometry object."""
+    """Represent a spherical geometry object.
+
+    Its :meth:`level_set` is the exact signed distance ``|p - midpoint| - radius``.
+    """
+
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -171,6 +177,11 @@ class Sphere(Shape3D):
         distance_squared = xp.sum((points - midpoint) ** 2, axis=0)
         inside = distance_squared <= self.radius**2
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the sphere."""
+        midpoint = xp.asarray(self.midpoint, dtype=float)[:, None]
+        return xp.sqrt(xp.sum((points - midpoint) ** 2, axis=0)) - self.radius
 
     def volume(self) -> float:
         """Calculate the volume of the sphere."""
