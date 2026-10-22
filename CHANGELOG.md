@@ -11,6 +11,14 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   plane section in plane coordinates (holes clockwise), or on the plane in 3D with
   `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
   3D (Matplotlib or PyVista). The tutorial "Slices and coordinate sampling" uses it.
+- `bracketed_edge_geometry(...).points` and `.normals`: the crossings in world coordinates
+  and the outward normals there, `(ndim, n)` like `cut_edges()`; `crossing_owners` indexes
+  each crossing's object. `BracketedEdgeGeometry` now keeps `spacing`, `periodic` and
+  `objects`, and `CutEdges` its `geometry`.
+- `CutEdges.show_3d()` and `BracketedEdgeGeometry.show_3d()`: the translucent surface, the
+  crossings and, optionally, the outward normals and solid nodes in 3D (PyVista or
+  Matplotlib). The tutorials "Grid intersections and cut edges" and "Conductors and level
+  sets" use them.
 - The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
   (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
   collection's conductors by their voltage at time `t`.
