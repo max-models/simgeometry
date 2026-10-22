@@ -17,6 +17,7 @@ shell = Sphere((0, 0, 0), 1) - Sphere((0, 0, 0), 0.4)
 shell.show_3d(opacity=0.5)
 shell.show(z=0.2)
 shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
+shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show_3d(backend="pyvista")
 ```
 
 ## Coordinates and return values
@@ -58,6 +59,13 @@ Axis-aligned sections retain remaining world-coordinate names. For example,
 `sphere.slice(x=0).evaluate(y=ys, z=zs)` samples a yz plane. Oblique sections use
 local x/y plane coordinates. `section.to_world()` and `section.to_local()` map
 between the plane and world space; the latter is an orthogonal projection.
+`section.outlines()` returns the section's boundary loops as `(2, n)` arrays in
+plane coordinates, sampled at `resolution` points per axis (outer boundaries
+counter-clockwise, holes clockwise, as for 2D Boolean shapes);
+`outlines(world=True)` maps them onto the plane as `(3, n)` arrays.
+`section.show_3d()` draws the section in context: the sliced shape translucently,
+the cutting plane over the shape's bounds and the outline on it
+(`backend="pyvista"` for an interactive view).
 
 ### Construction and ownership
 

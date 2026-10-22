@@ -7,6 +7,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `Section.outlines(max_spacing, resolution=, bounds=, world=)`: the sampled boundary loops of a
+  plane section in plane coordinates (holes clockwise), or on the plane in 3D with
+  `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
+  3D (Matplotlib or PyVista). The tutorial "Slices and coordinate sampling" uses it.
 - The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
   (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
   collection's conductors by their voltage at time `t`.
