@@ -26,6 +26,7 @@ dependencies = [
   "maybempi>=0.1",
   "mpiarray>=0.1.0",
   "numpy",
+  "scope-profiler>=0.7.5",
 ]
 optional-dependencies.dev = [
   "jupyterlab",
@@ -95,3 +96,4 @@ report.show_missing = true
 cunumpy = { git = "https://github.com/max-models/cunumpy", branch = "devel" }
 maybempi = { git = "https://github.com/max-models/maybempi", branch = "devel" }
 mpiarray = { git = "https://github.com/max-models/mpiarray", branch = "devel" }
+scope-profiler = { git = "https://github.com/max-models/scope-profiler", branch = "devel" }

@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.evaluation import sampling_axes
 from simgeometry.operations import mask
 
@@ -83,6 +85,7 @@ class SurfaceMesh:
         return path
 
 
+@sp.profile("simgeometry.to_mesh", tags=_PROFILE_TAGS)
 def to_mesh(shape, *, resolution=64, bounds=None):
     if shape.ndim not in (2, 3):
         raise ValueError("Surface meshing requires 2D or 3D geometry")

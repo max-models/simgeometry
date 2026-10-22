@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry._types import Array
 from simgeometry.api import GeometryAPI
 from simgeometry.boundingbox import BoundingBox
@@ -157,6 +159,7 @@ class Shape(GeometryAPI, ABC):
         points = _component_major(points, self.ndim)
         return xp.asarray([bool(self.contains(p)) for p in points.T], dtype=bool)
 
+    @sp.profile("simgeometry.node_mask", tags=_PROFILE_TAGS)
     def node_mask(self, grid: Grid) -> np.ndarray:
         """Return a host boolean array of the grid's shape, set at the nodes inside.
 

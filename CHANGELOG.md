@@ -32,6 +32,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `Aperture2D.slit(...)`: two rectangular plates. `exact_outline` and `closed` flags on 2D
   shapes.
 - The tutorial covers holes, polylines, panels and crossings.
+- scope-profiler regions for the expensive operations (`simgeometry.node_mask`,
+  `simgeometry.crossings`, `simgeometry.to_mesh`, ...), off unless the application enables
+  the `simgeometry` tag (`sp.setup(enable_tags=["simgeometry"])`). scope-profiler is now a
+  runtime dependency.
 
 ### Changed
 

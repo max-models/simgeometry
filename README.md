@@ -14,12 +14,12 @@ pip install simgeometry
 ```
 
 For development, install this checkout with `pip install -e '.[test]'`.
-NumPy, cunumpy, maybempi, and mpiarray are runtime dependencies.
-Matplotlib is optional. Install `simgeometry[plot]` for plotting,
-labelled evaluation and surface meshing, or `simgeometry[interactive]`
-for interactive 3D clipping with PyVista. Install `simgeometry[mpi]` for
-MPI, `simgeometry[pyccel]` for compiled CPU containment kernels, or
-`simgeometry[gpu]` for CUDA.
+NumPy, cunumpy, maybempi, mpiarray and scope-profiler are runtime
+dependencies. Matplotlib is optional. Install `simgeometry[plot]` for
+plotting, labelled evaluation and surface meshing, or
+`simgeometry[interactive]` for interactive 3D clipping with PyVista.
+Install `simgeometry[mpi]` for MPI, `simgeometry[pyccel]` for compiled
+CPU containment kernels, or `simgeometry[gpu]` for CUDA.
 
 ## Example
 
@@ -55,6 +55,24 @@ approximate cell/face fractions. See the [executed
 tutorials](https://max-models.github.io/simgeometry/tutorials/) and [API
 guide](https://max-models.github.io/simgeometry/getting-started/geometry-api/)
 for examples and the accuracy limits of sampled operations.
+
+## Profiling
+
+simgeometry ships
+[scope-profiler](https://github.com/max-models/scope-profiler) regions
+for its expensive operations (`simgeometry.node_mask`,
+`simgeometry.crossings`, `simgeometry.to_mesh`, …). They are off by
+default and cost almost nothing. Turn them on in an application that
+profiles itself with the `simgeometry` tag:
+
+``` python
+import scope_profiler as sp
+
+sp.setup(enable_tags=["simgeometry"])
+```
+
+or `SCOPE_PROFILER_ENABLE_TAGS=simgeometry`, or
+`scope-profiler run --enable-tag simgeometry`.
 
 ## Development
 
