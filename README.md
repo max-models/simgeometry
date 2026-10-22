@@ -80,6 +80,25 @@ directly. The [conductors
 tutorial](https://max-models.github.io/simgeometry/tutorials/conductors-and-level-sets/)
 builds an Einzel lens.
 
+## Preview a domain decomposition
+
+``` python
+from simgeometry import Sphere
+from simgeometry.domain_decomposition import DomainDecomposition
+
+preview = DomainDecomposition.preview(8, decompose=[True, True, True])
+preview.proc_sizes  # [2, 2, 2], as on 8 MPI ranks
+boxes = preview.subdomain_boxes((0, 0, 0), (2, 1, 1), (33, 17, 17))
+preview.show_3d((0, 0, 0), (2, 1, 1), (33, 17, 17), shape=Sphere((1, 0.5, 0.5), 0.35))
+```
+
+`DomainDecomposition.preview(size)` computes the split a `size`-rank run
+would use without a communicator, for inspection and planning: index
+ranges, subdomains and owner ranks for every rank. `show_3d` draws one
+box per rank (with `simgeometry[interactive]`) and `show` one rectangle
+per rank of a 2D decomposition. See the [parallel grids
+tutorial](https://max-models.github.io/simgeometry/tutorials/parallel-grids/).
+
 ## Profiling
 
 simgeometry ships
