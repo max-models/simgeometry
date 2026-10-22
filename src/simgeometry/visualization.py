@@ -413,3 +413,95 @@ def _grid_lines_3d(grid):
             a[axis], b[axis] = grid.lower_bound[axis], grid.upper_bound[axis]
             segments.append([a, b])
     return np.asarray(segments)
+
+
+def show_section_3d(
+    section,
+    *,
+    ax=None,
+    resolution=48,
+    outline_resolution=160,
+    bounds=None,
+    opacity=0.3,
+    plane_color="tab:orange",
+    plane_opacity=0.3,
+    outline_color="black",
+    outline_width=None,
+    backend="matplotlib",
+    display=True,
+    save=None,
+    **kwargs,
+):
+    """Draw a plane section in 3D: its source, the cutting plane and the outline.
+
+    The source is drawn translucently through :func:`show_3d` (``opacity``,
+    ``resolution`` and the other keyword arguments go there), the plane as a
+    rectangle covering the source's bounds (or ``bounds``), projected onto it,
+    and ``section.outlines(world=True)``, sampled at ``outline_resolution``, as
+    lines on the plane (``outline_width`` defaults to 4 pixels in PyVista, 2 points
+    in Matplotlib). Returns Matplotlib axes, or a PyVista plotter owned by the
+    caller for ``backend='pyvista'``.
+    """
+    source = section.source
+    if section.ndim != 2 or source.ndim != 3:
+        raise ValueError("show_3d of a section needs a plane section of a 3D shape")
+    lower, upper = bounds or (source.lower_bound, source.upper_bound)
+    box = np.array(list(product(*zip(lower, upper))), float).T
+    local = section.basis.T @ (box - section.origin[:, None])
+    (u0, v0), (u1, v1) = local.min(axis=1), local.max(axis=1)
+    plane = section.to_world(np.array([[u0, u1, u1, u0], [v0, v0, v1, v1]])).T
+    loops = [
+        (section.to_world(loop), closed)
+        for loop, closed in section._sampled_loops(
+            None, outline_resolution, None if bounds is None else ((u0, v0), (u1, v1))
+        )
+    ]
+    view = show_3d(
+        source,
+        ax=ax,
+        resolution=resolution,
+        bounds=bounds,
+        opacity=opacity,
+        backend=backend,
+        display=False,
+        **kwargs,
+    )
+    from matplotlib.colors import to_rgb, to_rgba
+
+    if backend == "pyvista":
+        from importlib import import_module
+
+        pv = import_module("pyvista")
+        view.add_mesh(
+            pv.PolyData(plane, faces=[4, 0, 1, 2, 3]),
+            color=to_rgb(plane_color),
+            opacity=plane_opacity,
+            name="section plane",
+        )
+        if loops:
+            points = np.concatenate([loop.T for loop, _ in loops])
+            lines, offset = [], 0
+            for loop, closed in loops:
+                n = loop.shape[1]
+                ids = list(range(offset, offset + n)) + ([offset] if closed else [])
+                lines += [len(ids), *ids]
+                offset += n
+            view.add_mesh(
+                pv.PolyData(points, lines=lines),
+                color=to_rgb(outline_color),
+                line_width=4 if outline_width is None else outline_width,
+                name="section outline",
+            )
+        if display or save:
+            view.show(screenshot=str(save) if save else None, auto_close=False)
+        return view
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    view.add_collection3d(
+        Poly3DCollection([plane], facecolors=to_rgba(plane_color, plane_opacity))
+    )
+    for loop, closed in loops:
+        if closed:
+            loop = np.concatenate([loop, loop[:, :1]], axis=1)
+        view.plot(*loop, color=outline_color, linewidth=outline_width or 2)
+    return _finish(view, display, save)

@@ -7,6 +7,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `Section.outlines(max_spacing, resolution=, bounds=, world=)`: the sampled boundary loops of a
+  plane section in plane coordinates (holes clockwise), or on the plane in 3D with
+  `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
+  3D (Matplotlib or PyVista). The tutorial "Slices and coordinate sampling" uses it.
 - `DomainDecomposition.preview(size, decompose=..., periodic=..., rank=...)` (or
   `proc_sizes=`): the decomposition a `size`-rank run would use, without a communicator, for
   inspection and planning; `subdomain_boxes(...)` returns every rank's subdomain corners,
