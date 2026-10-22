@@ -46,3 +46,4 @@ jobs:
         tutorials/sampling-export-and-diagnostics/2.html
         tutorials/grid-intersections-and-cut-edges/2.html
         tutorials/conductors-and-level-sets/4.html
+        tutorials/parallel-grids/1.html
