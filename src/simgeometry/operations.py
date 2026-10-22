@@ -455,3 +455,56 @@ class Section(Shape):
     @property
     def names(self):
         return getattr(self.source, "names", ("inside",))
+
+    def outlines(self, max_spacing=None, *, resolution=128, bounds=None, world=False):
+        """The sampled boundary loops of a plane section, as ``(2, n)`` host arrays.
+
+        Loops follow ``Shape2D.outlines``: no repeated first vertex, and the region on
+        their left, so outer boundaries are counter-clockwise and holes clockwise (a
+        hollow sphere gives one of each). They come from contouring the section on
+        ``resolution`` samples per axis across ``bounds`` (default: the section's
+        bounds, padded by 5%), on the level set where the source has one, so vertices
+        lie on the boundary up to the sampling accuracy. A loop cut by ``bounds`` stays
+        open. ``max_spacing`` (a length, or a function of ``(2, m)`` plane points)
+        splits longer edges evenly, as for Boolean outlines. ``world=True`` maps the
+        loops onto the plane in 3D, as ``(3, n)`` arrays. Requires the ``mesh`` extra;
+        sections of 2D shapes (lines) have no outlines.
+        """
+        loops = self._sampled_loops(max_spacing, resolution, bounds)
+        return [self.to_world(loop) if world else loop for loop, _ in loops]
+
+    def _sampled_loops(self, max_spacing, resolution, bounds):
+        """``(loop, closed)`` pairs of :meth:`outlines`, in plane coordinates."""
+        from simgeometry.mesh import _find_contours
+
+        if self.ndim != 2:
+            raise NotImplementedError("outlines() needs a 2D section of a 3D shape")
+        if (
+            max_spacing is not None
+            and not callable(max_spacing)
+            and not max_spacing > 0
+        ):
+            raise ValueError("max_spacing must be positive")
+        contours, _ = _find_contours(self, resolution=resolution, bounds=bounds)
+        loops = []
+        for contour in contours:
+            closed = len(contour) > 3 and np.array_equal(contour[0], contour[-1])
+            loop = contour[:-1] if closed else contour
+            loop = loop[np.any(np.diff(loop, axis=0, prepend=np.nan) != 0, axis=1)]
+            if len(loop) < 2:
+                continue
+            loop = np.ascontiguousarray(loop.T)
+            if max_spacing is not None:
+                loop = _refine_loop(loop, max_spacing, closed=closed)
+            loops.append((loop, closed))
+        return loops
+
+    def show_3d(self, **kwargs):
+        """The section in 3D: its source, the cutting plane and the section outline.
+
+        See :func:`simgeometry.visualization.show_section_3d`; returns Matplotlib
+        axes, or a PyVista plotter for ``backend='pyvista'``.
+        """
+        from simgeometry.visualization import show_section_3d
+
+        return show_section_3d(self, **kwargs)

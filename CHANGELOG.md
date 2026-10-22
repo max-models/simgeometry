@@ -13,6 +13,10 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PyVista backend draws them with plasma-plots' `pyvista_points` in the same legend as the
   objects (needs `plasma-plots>=0.2.5`); Matplotlib uses `scatter` and `quiver`. The
   tutorials "Shapes and node masks" and "Sampling, export and diagnostics" use it.
+- `Section.outlines(max_spacing, resolution=, bounds=, world=)`: the sampled boundary loops of a
+  plane section in plane coordinates (holes clockwise), or on the plane in 3D with
+  `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
+  3D (Matplotlib or PyVista). The tutorial "Slices and coordinate sampling" uses it.
 - `DomainDecomposition.preview(size, decompose=..., periodic=..., rank=...)` (or
   `proc_sizes=`): the decomposition a `size`-rank run would use, without a communicator, for
   inspection and planning; `subdomain_boxes(...)` returns every rank's subdomain corners,
