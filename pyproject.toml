@@ -40,7 +40,7 @@ optional-dependencies.docs = [
   "griffe",
   "simgeometry[clip,interactive]",
   # interactive 3-D scenes in the notebooks (plasma_plots.scene)
-  "plasma-plots[scene]>=0.2.4",
+  "plasma-plots[scene]>=0.2.5",
   "ipykernel",
   "matplotlib>=3.10.9",
   "nbclient>=0.11",
@@ -50,7 +50,7 @@ optional-dependencies.clip = [ "shapely>=2" ]
 optional-dependencies.evaluate = [ "xarray" ]
 optional-dependencies.mesh = [ "scikit-image>=0.22" ]
 optional-dependencies.plot = [ "matplotlib>=3.10", "simgeometry[evaluate,mesh]" ]
-optional-dependencies.interactive = [ "plasma-plots>=0.2.4", "pyvista>=0.44", "simgeometry[plot]" ]
+optional-dependencies.interactive = [ "plasma-plots>=0.2.5", "pyvista>=0.44", "simgeometry[plot]" ]
 optional-dependencies.mpi = [ "mpi4py" ]
 optional-dependencies.pyccel = [ "pyccel>2.0" ]
 optional-dependencies.gpu = [ "cupy-cuda12x" ]

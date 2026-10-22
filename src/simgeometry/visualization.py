@@ -1,7 +1,8 @@
 """Optional 1D/2D inspection and 3D surface viewers.
 
-Matplotlib is the default backend. The PyVista backend draws the surfaces with
-plasma-plots (``pyvista_surfaces``) and adds interactive clipping widgets.
+Matplotlib is the default backend. The PyVista backend draws the surfaces and point
+sets with plasma-plots (``pyvista_surfaces``, ``pyvista_points``) and adds interactive
+clipping widgets.
 Plots are sampled views. Increase resolution before interpreting small features.
 """
 
@@ -200,6 +201,67 @@ def _box_edges(lower, upper):
     )
 
 
+_POINT_KEYS = ("points", "vectors", "color", "size")
+
+
+def _as_points(points, label):
+    """``(n, 3)`` host points from simgeometry's ``(3, n)`` layout or ``(n, 3)``."""
+    import cunumpy as xp
+
+    array = np.asarray(xp.to_numpy(points), dtype=float)
+    if array.ndim == 1 and array.size == 3:
+        array = array[:, None]
+    if array.ndim == 2 and array.shape[0] == 3:
+        return array.T
+    if array.ndim == 2 and array.shape[1] == 3:
+        return array
+    raise ValueError(
+        f"points {label!r} must have shape (3, n) or (n, 3); got {array.shape}"
+    )
+
+
+def _as_vectors(vectors, count, label):
+    """``(count, 3)`` host vectors from ``(3, count)`` or ``(count, 3)``."""
+    import cunumpy as xp
+
+    array = np.asarray(xp.to_numpy(vectors), dtype=float)
+    if array.shape == (3, count):
+        return array.T
+    if array.shape == (count, 3):
+        return array
+    raise ValueError(
+        f"vectors of {label!r} must have shape (3, {count}) or ({count}, 3); "
+        f"got {array.shape}"
+    )
+
+
+def _point_sets(points, first_color):
+    """``show_3d``'s ``points`` as ``{label: {"points", "vectors", "color", "size"}}``
+    with ``(n, 3)`` arrays and a colour for each set, and whether they are labelled."""
+    named = isinstance(points, dict)
+    entries = points if named else {"points": points}
+    sets = {}
+    for i, (label, value) in enumerate(entries.items()):
+        entry = dict(value) if isinstance(value, dict) else {"points": value}
+        unknown = sorted(set(entry) - set(_POINT_KEYS))
+        if unknown or "points" not in entry:
+            raise ValueError(
+                f"points {label!r}: give an array or a dict with 'points' and "
+                f"optionally 'vectors', 'color', 'size'; got keys {sorted(entry)}"
+            )
+        coordinates = _as_points(entry["points"], label)
+        vectors = entry.get("vectors")
+        sets[str(label)] = {
+            "points": coordinates,
+            "vectors": None
+            if vectors is None
+            else _as_vectors(vectors, len(coordinates), label),
+            "color": entry.get("color") or f"C{(first_color + i) % 10}",
+            "size": entry.get("size"),
+        }
+    return sets, named
+
+
 def show_3d(
     shape,
     *,
@@ -220,6 +282,7 @@ def show_3d(
     display=True,
     save=None,
     t=0.0,
+    points=None,
     **kwargs,
 ):
     """Render surfaces; return axes or an optional PyVista Plotter.
@@ -229,6 +292,15 @@ def show_3d(
     close the returned plotter. color_by="voltage" (PyVista) colors the
     conductors of a collection by their voltage at time ``t``; objects without
     a voltage are grey. No MPI operations are performed.
+
+    ``points`` overlays point sets, e.g. samples, grid nodes or crossings: an
+    array in simgeometry's ``(3, n)`` layout (or ``(n, 3)``; a ``(3, 3)`` array
+    is read as ``(3, n)``), or a dict of label to array, or of label to a dict
+    with ``"points"`` and optionally ``"vectors"`` (one per point, e.g. normals,
+    drawn as arrows; the longest is 5% of the view), ``"color"`` and ``"size"``
+    (pixels in PyVista, points in Matplotlib). Each set takes the next colour
+    after the objects' and, when labelled, a legend entry beside them (PyVista:
+    plasma-plots' ``pyvista_points``).
     """
     if shape.ndim != 3:
         raise ValueError("show_3d requires three-dimensional geometry")
@@ -247,6 +319,10 @@ def show_3d(
     objects = getattr(shape, "named_objects", {"geometry": shape})
     styles = getattr(shape, "styles", {})
     lower, upper = bounds or (shape.lower_bound, shape.upper_bound)
+    point_sets, named_points = (
+        _point_sets(points, len(objects)) if points is not None else ({}, False)
+    )
+    vector_scale = float(np.max(np.asarray(upper) - lower)) * 0.05
     if backend == "pyvista":
         try:
             from importlib import import_module
@@ -372,6 +448,29 @@ def show_3d(
                 plotter.add_points(grid.node_points().T, point_size=4)
         if labels and len(surfaces) < len(objects) and color_by != "voltage":
             plotter.add_legend()
+        if point_sets:
+            from plasma_plots.pyvista_plots import pyvista_points
+
+            entries = point_sets.values()
+            pyvista_points(
+                {label: entry["points"] for label, entry in point_sets.items()}
+                if named_points
+                else point_sets["points"]["points"],
+                colors=[entry["color"] for entry in entries],
+                size=[
+                    6 if entry["size"] is None else entry["size"] for entry in entries
+                ],
+                vectors={
+                    label: entry["vectors"]
+                    for label, entry in point_sets.items()
+                    if entry["vectors"] is not None
+                }
+                if named_points
+                else point_sets["points"]["vectors"],
+                vector_scale=vector_scale,
+                legend=labels,
+                plotter=plotter,
+            )
         if display or save:
             plotter.show(screenshot=str(save) if save else None, auto_close=False)
         return plotter
@@ -387,6 +486,32 @@ def show_3d(
         )
         if nodes:
             ax.scatter(*grid.node_points(), s=2, alpha=0.25)
+    peak = max(
+        (
+            float(np.linalg.norm(entry["vectors"], axis=1).max(initial=0.0))
+            for entry in point_sets.values()
+            if entry["vectors"] is not None
+        ),
+        default=0.0,
+    )
+    for label, entry in point_sets.items():
+        size = {} if entry["size"] is None else {"s": entry["size"] ** 2}
+        artist = ax.scatter(
+            *entry["points"].T,
+            color=entry["color"],
+            label=label if named_points else None,
+            depthshade=False,
+            **size,
+        )
+        if named_points:
+            handles.append(artist)
+        if entry["vectors"] is not None and peak > 0:
+            ax.quiver(
+                *entry["points"].T,
+                *entry["vectors"].T,
+                length=vector_scale / peak,
+                color=entry["color"],
+            )
     for setter, a, b in zip((ax.set_xlim, ax.set_ylim, ax.set_zlim), lower, upper):
         setter(a, b)
     from matplotlib.ticker import MaxNLocator
