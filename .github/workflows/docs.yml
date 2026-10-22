@@ -40,3 +40,9 @@ jobs:
         tutorials/shapes-and-node-masks/1.png
         tutorials/inspecting-geometry/4.html
         tutorials/conductors-and-level-sets/2.html
+        tutorials/shapes-and-node-masks/2.html
+        tutorials/building-composite-shapes/5.html
+        tutorials/slices-and-coordinate-sampling/4.html
+        tutorials/sampling-export-and-diagnostics/2.html
+        tutorials/grid-intersections-and-cut-edges/2.html
+        tutorials/conductors-and-level-sets/4.html
