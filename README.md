@@ -56,6 +56,30 @@ tutorials](https://max-models.github.io/simgeometry/tutorials/) and [API
 guide](https://max-models.github.io/simgeometry/getting-started/geometry-api/)
 for examples and the accuracy limits of sampled operations.
 
+## Level sets, solids of revolution and conductors
+
+``` python
+from simgeometry import GeometryCollection, Tube
+
+ring = lambda z: Tube((0, 0, z - 0.4), (0, 0, z + 0.4), 1.0, 1.6, fillet=0.1)
+lens = GeometryCollection(
+    {"entrance": ring(-1.2), "focus": ring(0.0), "exit": ring(1.2)},
+    voltages={"entrance": 0.0, "focus": 10e3, "exit": 0.0},
+)
+scan = lens.with_voltages(focus=lambda t: 10e3 * min(t / 1e-6, 1.0))
+values = scan.dirichlet_values(grid, t=0.5e-6)  # labels and voltages per node
+distance = lens["focus"].level_set(points)  # exact signed distance
+```
+
+`Cylinder`, `Tube`, `Cone` and `Torus` take any axis. Analytic shapes
+have a `level_set(points)`, negative inside, with `level_set_exact`
+where it is the Euclidean signed distance; Booleans and transforms
+propagate it. Edge crossings refine it with a few secant steps instead
+of bisecting `contains`, and `signed_distance` returns an exact one
+directly. The [conductors
+tutorial](https://max-models.github.io/simgeometry/tutorials/conductors-and-level-sets/)
+builds an Einzel lens.
+
 ## Profiling
 
 simgeometry ships

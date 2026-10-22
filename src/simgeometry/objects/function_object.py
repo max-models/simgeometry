@@ -114,19 +114,22 @@ class FunctionObject3D(Shape3D):
     returns ``True``.  A bounding box must be supplied by the caller because
     it cannot in general be derived from an arbitrary function.
 
+    A function object has no level set, so crossings and distances are found by
+    sampling its membership. Prefer a primitive where one fits (a torus is
+    :class:`~simgeometry.Torus`, a ring electrode :class:`~simgeometry.Tube`).
+
     Example
     -------
-    Create a solid torus with major radius 3 and tube radius 1::
+    Create a rounded cube, the superellipsoid ``x**4 + y**4 + z**4 <= 1``::
 
-        def torus(coords):
+        def rounded_cube(coords):
             x, y, z = coords
-            r = (x**2 + y**2)**0.5
-            return (r - 3.0)**2 + z**2 <= 1.0**2
+            return x**4 + y**4 + z**4 <= 1.0
 
         obj = FunctionObject3D(
-            func=torus,
-            lower_bound=(-4.0, -4.0, -1.0),
-            upper_bound=(4.0, 4.0, 1.0),
+            func=rounded_cube,
+            lower_bound=(-1.0, -1.0, -1.0),
+            upper_bound=(1.0, 1.0, 1.0),
         )
     """
 

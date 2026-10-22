@@ -19,9 +19,13 @@ class Aperture2D(Shape2D):
     the centre line. One plate is the polygon at ``position + radial``, the other its
     mirror image at ``position - radial``. :meth:`slit` builds the common rectangular
     plates.
+
+    Its :meth:`level_set` is the signed distance to the plates' edges, exact while the
+    plates do not touch (every radial coordinate positive).
     """
 
     exact_outline = True
+    has_level_set = True
 
     def __init__(
         self,
@@ -154,6 +158,15 @@ class Aperture2D(Shape2D):
             points
         ) | self._upper_polygon.contains_points(points)
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: ndarray) -> ndarray:
+        """Signed distance to the edges of both plates."""
+        return self._edge_level_set(points)
+
+    @property
+    def level_set_exact(self) -> bool:
+        """Whether the plates are apart, so that the level set is exact."""
+        return all(float(v[1]) > 0 for v in self.vertices)
 
     @property
     def vertices(self) -> tuple[tuple[float, float], ...]:

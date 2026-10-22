@@ -7,6 +7,13 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
+  (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
+  collection's conductors by their voltage at time `t`.
+- `level_set_field()`: the level set on a grid in the layout of plasma-plots' 3D views, for
+  `field.plasma.plot.isosurface(...)`; `evaluate(quantity="level_set")`.
+- Interactive 3D scenes in the tutorials "Inspecting geometry" and "Conductors and level
+  sets" (starlight-theme v0.5.0, `plasma_plots.scene`).
 - `DomainDecomposition.owner_ranks(positions, lower_bound, upper_bound, num_gridpoints,
   layout)` and `owned_mask(...)`: vectorised position-to-rank lookup for NumPy and CuPy arrays
   (`(ndim, n)` by default, `layout="particle_major"` for `(n, ndim)`).
@@ -36,6 +43,21 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `simgeometry.crossings`, `simgeometry.to_mesh`, ...), off unless the application enables
   the `simgeometry` tag (`sp.setup(enable_tags=["simgeometry"])`). scope-profiler is now a
   runtime dependency.
+- `shape.level_set(points)`: an analytic level set, negative inside and positive outside like
+  `signed_distance`, with `has_level_set` and `level_set_exact` (the Euclidean signed
+  distance). Exact for lines, circles, spheres, rectangles, cuboids, polygons, triangles,
+  apertures and the new solids; Booleans combine level sets by min/max, transforms scale
+  them by their smallest stretch (exact for rigid motions and uniform scaling), sections and
+  collections pass them on. Function objects and `Aperture3D` have none.
+- `Cylinder`, `Tube` (hollow cylinder), `Cone` (frustum, or cone with one radius 0) and
+  `Torus`, along any axis, with exact level sets, volumes, surface areas and tight bounding
+  boxes; `fillet=` rounds the edges of cylinders and tubes.
+- Conductors on `GeometryCollection`: `voltages={name: value or function of t}`,
+  `with_voltages(...)` (same geometry, other voltages), `voltages_at(t)`, `conductors`, and
+  `dirichlet_values(grid or points, t=...)` with the label and voltage of each node
+  (`DirichletValues`; NaN outside conductors).
+- Tutorial "Conductors and level sets": an Einzel lens of three ring electrodes with voltages.
+- `benchmarks/level_set_crossings.py`: edge crossings on level sets against bisection.
 
 ### Changed
 
@@ -50,6 +72,16 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   for `axis=0`.
 - 2D shapes have no `get_vertices()` any more; use `outlines()`, which returns `(2, n)`
   arrays. `PointList` and `Point` are gone.
+- `intersection_fractions` (and so `bracketed_edge_geometry`) refines crossings of shapes with
+  a level set by linear interpolation and Illinois steps on it, about 8 evaluations per edge
+  instead of 50 (2.5 to 3.3 times faster on NumPy, equally accurate); edges without a sign
+  change of the level set are bisected as before. A level-set crossing is the root itself, not
+  the end of the last bisection interval inside the object.
+- The sampled paths of `cut_edges`/`intersect_segment` and `crossings` refine on the level set
+  when there is one; `crossings` then takes its normal from the level-set gradient, as does
+  `surface_normal`. `signed_distance` returns an exact level set directly, and `to_mesh`
+  contours the level set of any shape that has one (it did so for balls and boxes only).
+- The `FunctionObject3D` example is a rounded cube; use `Torus` for a torus.
 
 ### Removed
 

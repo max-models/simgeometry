@@ -7,14 +7,20 @@ from operator import add, sub
 import cunumpy as xp
 import numpy as np
 
+from simgeometry._level_set import box_distance
 from simgeometry._types import Array, ConfigValue
 from simgeometry.shapes import Shape2D, _component_major
 
 
 class Rectangle(Shape2D):
-    """Represent a rectangular geometry object."""
+    """Represent a rectangular geometry object.
+
+    Its :meth:`level_set` is the exact signed distance to the box.
+    """
 
     exact_outline = True
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -128,3 +134,9 @@ class Rectangle(Shape2D):
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
         inside = xp.all((points >= lower) & (points < upper), axis=0)
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the rectangle."""
+        lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
+        upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
+        return box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower))

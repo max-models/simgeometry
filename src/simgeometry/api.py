@@ -29,7 +29,8 @@ class GeometryAPI:
         Scalars fix axes, sequences form a tensor product, and DataArrays with
         shared dimension names describe scattered points. Unspecified axes use
         grid nodes, or ``resolution`` samples across ``bounds``/the shape bounds.
-        ``quantity`` is occupancy, labels (collections), or signed_distance.
+        ``quantity`` is occupancy, labels (collections), signed_distance, or
+        level_set (the analytic level set, or the signed distance without one).
         This is a local host operation, with no implicit MPI collectives.
         """
         from simgeometry.evaluation import evaluate
@@ -44,6 +45,16 @@ class GeometryAPI:
             resolution=resolution,
             quantity=quantity,
         )
+
+    def level_set_field(self, *, resolution=64, bounds=None):
+        """The level set on a 3D grid, laid out for plasma-plots' 3D views.
+
+        ``shape.level_set_field().plasma.plot.isosurface(values=[0])`` draws the
+        surface (requires the ``interactive`` extra and ``import plasma_plots``).
+        """
+        from simgeometry.evaluation import level_set_field
+
+        return level_set_field(self, resolution=resolution, bounds=bounds)
 
     def slice(self, *, x=None, y=None, z=None, origin=None, normal=None):
         """Return a queryable section with local-to-world coordinate mappings.
@@ -155,7 +166,8 @@ class GeometryAPI:
         ``fraction``, ``point`` and ``normal`` (out of the region where ``contains`` is
         true) on the active array backend. Polygons, circles, spheres, boxes and their
         affine transforms are analytic; other shapes sample ``samples`` points per
-        segment and bisect ``iterations`` times.
+        segment and bisect ``iterations`` times, or refine on their level set (with its
+        gradient as the normal) if they have one.
         """
         from simgeometry.crossings import crossings
 
@@ -175,7 +187,9 @@ class GeometryAPI:
     def signed_distance(self, points, *, resolution=64, bounds=None):
         """Distance to the boundary, negative inside, positive outside.
 
-        Exact for balls, boxes and simple polygons; otherwise distance to the
+        Exact for balls, boxes, simple polygons and every shape whose level set is
+        exact (``level_set_exact``, such as cylinders, tubes, cones, tori and their
+        rigid motions), which it returns directly; otherwise distance to the
         sampled surface mesh. A membership function is not itself a distance.
         """
         from simgeometry.queries import signed_distance

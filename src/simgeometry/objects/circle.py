@@ -10,7 +10,13 @@ from simgeometry.shapes import Shape2D, Spacing, _component_major, _distribute
 
 
 class Circle(Shape2D):
-    """Represent a circular geometry object."""
+    """Represent a circular geometry object.
+
+    Its :meth:`level_set` is the exact signed distance ``|p - midpoint| - radius``.
+    """
+
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -136,3 +142,8 @@ class Circle(Shape2D):
         distance_squared = xp.sum((points - midpoint) ** 2, axis=0)
         inside = distance_squared <= self.radius**2
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the circle."""
+        midpoint = xp.asarray(self.midpoint, dtype=float)[:, None]
+        return xp.sqrt(xp.sum((points - midpoint) ** 2, axis=0)) - self.radius

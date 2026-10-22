@@ -9,7 +9,13 @@ from simgeometry.shapes import Shape1D, _component_major
 
 
 class Line(Shape1D):
-    """Represent a line geometry object."""
+    """Represent a line geometry object.
+
+    Its :meth:`level_set` is the exact signed distance to the interval.
+    """
+
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -125,3 +131,8 @@ class Line(Shape1D):
         points = _component_major(points, 1)
         inside = (self.lower_bound[0] <= points[0]) & (points[0] <= self.upper_bound[0])
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the interval."""
+        lower, upper = float(self.lower_bound[0]), float(self.upper_bound[0])
+        return xp.abs(points[0] - 0.5 * (lower + upper)) - 0.5 * (upper - lower)

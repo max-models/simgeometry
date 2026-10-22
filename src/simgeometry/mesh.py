@@ -93,7 +93,7 @@ def to_mesh(shape, *, resolution=64, bounds=None):
         from skimage.measure import find_contours, marching_cubes
     except ImportError as exc:
         raise ImportError("Surface meshing requires simgeometry[mesh]") from exc
-    from simgeometry.queries import BALLS, BOXES
+    from simgeometry.queries import level_values
 
     if bounds is None:
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
@@ -103,23 +103,12 @@ def to_mesh(shape, *, resolution=64, bounds=None):
     dimensions = tuple(len(a) for a in axes)
     spacing = tuple(float(a[1] - a[0]) for a in axes)
     points = np.stack([a.ravel() for a in np.meshgrid(*axes, indexing="ij")])
-    # Continuous implicit functions improve primitive surface placement; generic
-    # membership masks have an uncertainty of roughly a sampling cell.
-    if isinstance(shape, BALLS):
-        values = shape.radius - np.linalg.norm(
-            points - np.asarray(shape.midpoint)[:, None], axis=0
-        )
-    elif isinstance(shape, BOXES):
-        centre = (np.asarray(shape.lower_bound) + shape.upper_bound) / 2
-        half = (np.asarray(shape.upper_bound) - shape.lower_bound) / 2
-        q = abs(points - centre[:, None]) - half[:, None]
-        values = -(
-            np.linalg.norm(np.maximum(q, 0), axis=0) + np.minimum(np.max(q, axis=0), 0)
-        )
+    # A level set (continuous, positive inside once negated) places the surface
+    # between samples; a membership mask has an uncertainty of about a sampling cell.
+    if getattr(shape, "has_level_set", False):
+        values = -level_values(shape, points)
     else:
         values = mask(shape, points).astype(float) - 0.5
-    if isinstance(shape, (*BALLS, *BOXES)) and shape.inverted:
-        values = -values
     values = values.reshape(dimensions)
     if not (values.min() < 0 < values.max()):
         return SurfaceMesh(
