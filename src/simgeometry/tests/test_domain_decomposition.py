@@ -337,3 +337,213 @@ def test_owner_ranks_mpi4(periodic: bool) -> None:
     )
     in_box = np.all((points >= 0) & (points < np.array([1.0, 2.0])[:, None]), axis=0)
     assert np.all(mine[inside & in_box])
+
+
+# --- Preview without a communicator ----------------------------------------
+
+
+class _FakeComm:
+    """Just enough of a communicator for ``DomainDecomposition``: a size and a rank."""
+
+    def __init__(self, size: int, rank: int) -> None:
+        self._size, self._rank = size, rank
+
+    def Get_size(self) -> int:
+        return self._size
+
+    def Get_rank(self) -> int:
+        return self._rank
+
+
+PREVIEW_CASES = [
+    (1, [True, True, True]),
+    (4, [True, True]),
+    (6, [True, True, True]),
+    (7, [True, True, True]),
+    (8, [True, True, True]),
+    (12, [True, True, False]),
+    (12, [False, True, True]),
+    (16, [True]),
+    (4, [False, False]),
+]
+
+
+def test_preview_matches_the_mpi_test_expectations() -> None:
+    """The splits the 4- and 6-rank MPI tests expect, without the ranks."""
+    assert DomainDecomposition.preview(6, decompose=[True] * 3).proc_sizes == [2, 1, 3]
+    assert DomainDecomposition.preview(4, decompose=[True] * 2).proc_sizes == [2, 2]
+    assert DomainDecomposition.preview(8, ndim=3).proc_sizes == [2, 2, 2]
+
+
+@pytest.mark.parametrize("periodic", [False, True])
+@pytest.mark.parametrize(("size", "decompose"), PREVIEW_CASES)
+def test_preview_is_the_split_of_a_real_run(
+    size: int, decompose: list[bool], periodic: bool
+) -> None:
+    """Seen from every rank, a preview equals the decomposition of a size-rank communicator."""
+    shape = tuple(11 + 2 * axis for axis in range(len(decompose)))
+    flags = [periodic] * len(decompose)
+    for rank in range(size):
+        real = DomainDecomposition(
+            _FakeComm(size, rank), decompose=decompose, periodic=flags
+        )
+        preview = DomainDecomposition.preview(
+            size, decompose=decompose, periodic=flags, rank=rank
+        )
+        assert preview.comm is None and preview.is_preview == (size > 1)
+        assert (preview.mpi_size, preview.mpi_rank) == (size, rank)
+        assert preview.proc_sizes == real.proc_sizes
+        assert preview.replicated == real.replicated
+        assert preview.proc_coord == real.proc_coord
+        assert preview.neighbour_ranks == real.neighbour_ranks
+        assert preview.node_cuts(shape) == real.node_cuts(shape)
+        for other in range(size):
+            assert preview.get_index_bounds(shape, other) == real.get_index_bounds(
+                shape, other
+            )
+
+
+def test_preview_matches_mpi_compute_dims_for_balanced_sizes() -> None:
+    """Where the balanced split is unique, it is also what MPI.Compute_dims picks."""
+    mpi4py = pytest.importorskip("mpi4py.MPI")
+    for size, ndim in [(4, 2), (8, 3), (9, 2), (27, 3), (16, 2)]:
+        preview = DomainDecomposition.preview(size, ndim=ndim)
+        assert preview.proc_sizes == list(mpi4py.Compute_dims(size, ndim))
+
+
+def test_preview_with_processes_per_axis() -> None:
+    """``proc_sizes`` fixes the process grid; the split axes are the decomposed ones."""
+    preview = DomainDecomposition.preview(proc_sizes=[3, 1, 2], rank=5)
+    assert preview.mpi_size == 6 and preview.proc_sizes == [3, 1, 2]
+    assert preview.decompose == [True, False, True]
+    assert preview.proc_coord == (2, 0, 1)
+    assert preview.get_index_bounds((9, 4, 6)) == [(6, 9), (0, 4), (3, 6)]
+    with pytest.raises(ValueError, match="multiply"):
+        DomainDecomposition.preview(4, proc_sizes=[3, 1])
+    with pytest.raises(ValueError, match="decompose"):
+        DomainDecomposition.preview(proc_sizes=[2, 2], decompose=[True, False])
+    with pytest.raises(ValueError, match="rank"):
+        DomainDecomposition.preview(4, ndim=2, rank=4)
+    with pytest.raises(ValueError, match="size or proc_sizes"):
+        DomainDecomposition.preview(ndim=2)
+
+
+def test_preview_has_no_layout() -> None:
+    """A preview never communicates, so it refuses to build an array layout."""
+    with pytest.raises(ValueError, match="preview"):
+        DomainDecomposition.preview(4, ndim=2).layout((8, 8))
+    # One process is an ordinary serial decomposition.
+    assert DomainDecomposition.preview(1, ndim=2).layout((8, 8)).local_shape == (8, 8)
+
+
+GRIDS = [
+    (8, [True, True, True], (0.0, 0.0, 0.0), (2.0, 1.0, 1.0), (33, 17, 17)),
+    (6, [True, True], (-1.0, 0.0), (1.0, 3.0), (10, 31)),
+    (12, [True, True, False], (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (9, 13, 5)),
+    (5, [True], (0.0,), (1.0,), (21,)),
+]
+
+
+@pytest.mark.parametrize("periodic", [False, True])
+@pytest.mark.parametrize(("size", "decompose", "lower", "upper", "nodes"), GRIDS)
+def test_subdomain_boxes_tile_the_domain(
+    size, decompose, lower, upper, nodes, periodic
+) -> None:
+    """The boxes cover the domain once: their volumes add up and no two overlap."""
+    preview = DomainDecomposition.preview(
+        size, decompose=decompose, periodic=[periodic] * len(decompose)
+    )
+    boxes = preview.subdomain_boxes(lower, upper, nodes)
+    assert len(boxes) == size
+    assert boxes[3 % size] == preview.subdomain_bounds(3 % size, lower, upper, nodes)
+    lo = np.array([box[0] for box in boxes])
+    hi = np.array([box[1] for box in boxes])
+    assert np.all(hi > lo)
+    assert np.all(lo >= np.array(lower)) and np.all(hi <= np.array(upper))
+    assert np.prod(hi - lo, axis=1).sum() == pytest.approx(
+        np.prod(np.array(upper) - np.array(lower))
+    )
+    for a in range(size):
+        for b in range(a + 1, size):
+            overlap = np.minimum(hi[a], hi[b]) - np.maximum(lo[a], lo[b])
+            assert np.any(overlap <= 0), f"ranks {a} and {b} overlap"
+
+
+@pytest.mark.parametrize(("size", "decompose", "lower", "upper", "nodes"), GRIDS)
+def test_owner_ranks_agree_with_the_boxes(size, decompose, lower, upper, nodes) -> None:
+    """A point inside a rank's box is owned by that rank, and by its mask only."""
+    preview = DomainDecomposition.preview(size, decompose=decompose)
+    boxes = preview.subdomain_boxes(lower, upper, nodes)
+    rng = np.random.default_rng(5)
+    points = rng.uniform(
+        np.array(lower)[:, None], np.array(upper)[:, None], (len(lower), 500)
+    )
+    owners = preview.owner_ranks(points, lower, upper, nodes)
+    for rank, (lo, hi) in enumerate(boxes):
+        inside = np.all(
+            (points >= np.array(lo)[:, None]) & (points < np.array(hi)[:, None]),
+            axis=0,
+        )
+        assert np.all(owners[inside] == rank)
+        centre = (np.array(lo) + np.array(hi)) / 2
+        assert preview.owner_rank_for_position(centre, lower, upper, nodes) == rank
+        mine = DomainDecomposition.preview(size, decompose=decompose, rank=rank)
+        assert (
+            mine.owned_mask(points, lower, upper, nodes).tolist()
+            == (owners == rank).tolist()
+        )
+
+
+def test_decomposition_show_3d_returns_a_plotter(tmp_path) -> None:
+    """The 3D view draws one box per rank (and the shape) with plasma-plots."""
+    pv = pytest.importorskip("pyvista")
+    pytest.importorskip("plasma_plots")
+    pytest.importorskip("skimage")
+    from simgeometry import Sphere
+
+    preview = DomainDecomposition.preview(8, ndim=3)
+    plotter = preview.show_3d(
+        (0.0, 0.0, 0.0),
+        (2.0, 1.0, 1.0),
+        (17, 9, 9),
+        shape=Sphere((1.0, 0.5, 0.5), 0.3),
+        resolution=12,
+        display=False,
+        save=tmp_path / "ranks.png",
+    )
+    try:
+        assert isinstance(plotter, pv.Plotter)
+        assert len(plotter.meshes) == 9
+        assert plotter.legend is not None
+        assert (tmp_path / "ranks.png").stat().st_size > 0
+    finally:
+        plotter.close()
+    # Many ranks are coloured by a rank scalar bar instead of a legend.
+    plotter = DomainDecomposition.preview(64, ndim=3).show_3d(
+        (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (9, 9, 9), display=False
+    )
+    try:
+        assert len(plotter.meshes) == 64 and "rank" in plotter.scalar_bars
+    finally:
+        plotter.close()
+    with pytest.raises(ValueError, match="three-dimensional"):
+        DomainDecomposition.preview(4, ndim=2).show_3d((0, 0), (1, 1), (5, 5))
+
+
+def test_decomposition_show_draws_one_rectangle_per_rank() -> None:
+    """The 2D Matplotlib view: a rectangle and a label per rank, the shape on top."""
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from simgeometry import Circle
+
+    ax = DomainDecomposition.preview(6, ndim=2).show(
+        (0.0, 0.0), (2.0, 1.0), (17, 9), shape=Circle((1.0, 0.5), 0.3), display=False
+    )
+    try:
+        assert len(ax.patches) == 6
+        assert [t.get_text() for t in ax.texts] == [f"rank {r}" for r in range(6)]
+        assert len(ax.lines) == 1
+    finally:
+        plt.close("all")

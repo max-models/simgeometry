@@ -7,6 +7,11 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `DomainDecomposition.preview(size, decompose=..., periodic=..., rank=...)` (or
+  `proc_sizes=`): the decomposition a `size`-rank run would use, without a communicator, for
+  inspection and planning; `subdomain_boxes(...)` returns every rank's subdomain corners,
+  `show_3d(...)` draws them as boxes coloured by rank (plasma-plots, optional `shape=`) and
+  `show(...)` as rectangles in 2D. The tutorial "Parallel grids" shows an 8-rank scene.
 - The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
   (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
   collection's conductors by their voltage at time `t`.
