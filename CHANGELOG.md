@@ -7,6 +7,12 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `show_3d(points=...)` overlays labelled point sets, e.g. samples, grid nodes or
+  crossings: an array in the `(3, n)` layout (or `(n, 3)`), or a dict of label to array or
+  to `{"points", "vectors", "color", "size"}`, with optional arrows such as normals. The
+  PyVista backend draws them with plasma-plots' `pyvista_points` in the same legend as the
+  objects (needs `plasma-plots>=0.2.5`); Matplotlib uses `scatter` and `quiver`. The
+  tutorials "Shapes and node masks" and "Sampling, export and diagnostics" use it.
 - `Section.outlines(max_spacing, resolution=, bounds=, world=)`: the sampled boundary loops of a
   plane section in plane coordinates (holes clockwise), or on the plane in 3D with
   `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
