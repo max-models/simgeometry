@@ -287,7 +287,7 @@ directions.
 Both are exact for planes; for curved surfaces they converge at second order or better (a
 circle's area and perimeter to `2e-7` at 80 cells across). A surface lying on grid lines
 (walls of an axis-aligned box or slit on node planes) is treated like a staircase: the edges
-in it count as inside, whatever `contains` returns on the surface itself, and its trace
+and faces in it count as inside, whatever `contains` returns on the surface itself, and its trace
 counts for the face on its outside. Shapes without analytic crossings are
 sampled with `samples` points per segment. Where a shape has a level set, segments farther
 from the surface than half their length are not searched.

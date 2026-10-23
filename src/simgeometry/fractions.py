@@ -111,8 +111,8 @@ class YeeFractions:
     misses the face's quadrature lines is missed.
 
     A surface lying on grid lines (an axis-aligned wall on a node plane) is treated as
-    a staircase: the edges in it are inside, whatever ``contains`` returns on the
-    surface, and its trace counts for the face on its outside, with sine one.
+    a staircase: the edges and faces in it are inside, whatever ``contains`` returns on
+    the surface, and its trace counts for the face on its outside, with sine one.
     """
 
     edges: tuple[np.ndarray, ...]
@@ -140,7 +140,8 @@ def _all_hits(geometry, start, end, *, samples, max_hits):
         if active.size == 0:
             break
         origin = start[:, active] + begin[active] * step[:, active]
-        result = crossings(geometry, origin, end[:, active], samples=samples)
+        with np.errstate(invalid="ignore"):  # sampled shapes: inf * 0 for misses
+            result = crossings(geometry, origin, end[:, active], samples=samples)
         hit = np.asarray(xp.to_numpy(result.hit), dtype=bool)
         fraction = np.asarray(xp.to_numpy(result.fraction), dtype=float)
         normal = np.asarray(xp.to_numpy(result.normal), dtype=float)
@@ -399,4 +400,15 @@ def _face_integrals(
     area[chosen] = 0.5 * (areas[0] + areas[1])
     # the quadrature's round-off next to fully inside or outside faces
     area = np.where(area < 1e-12, 0.0, np.where(area > 1 - 1e-12, 1.0, area))
+    if ndim == 3:
+        # a face that lies in the surface (inside on one side) counts as inside
+        normal_axis = 3 - b - c
+        flat = chosen[area[chosen] == 0.0]
+        if flat.size:
+            sides = []
+            for sign in (-1.0, 1.0):
+                probe = centres[:, flat].copy()
+                probe[normal_axis] += sign * _NUDGE * h[normal_axis]
+                sides.append(mask(geometry, probe))
+            area[flat[sides[0] != sides[1]]] = 1.0
     return area, trace, projected
