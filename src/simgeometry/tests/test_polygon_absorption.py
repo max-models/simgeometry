@@ -219,3 +219,11 @@ def test_absorb_takes_a_step_longer_than_the_plate_thickness():
     alive = np.ones(4, dtype=bool)
     hit = packed.absorb(end, alive, start=start, sweep_length=1.0)
     np.testing.assert_array_equal(hit, [-1, -1, -1, -1])
+
+
+def test_absorb_takes_a_single_column_with_fortran_strides():
+    packed = polygon_objects([Polygon(TRIANGLE)])
+    points = np.array([[8.0, 0.0], [5.0, 0.0]])[:, [0]]  # (2, 1), F strides
+    start = np.array([[6.0, 0.0], [5.0, 0.0]])[:, [0]]
+    hit = packed.absorb(points, np.ones(1, dtype=bool), start=start)
+    np.testing.assert_array_equal(hit, [0])

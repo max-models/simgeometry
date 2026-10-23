@@ -106,13 +106,13 @@ class PolygonObjects:
         """
         from simgeometry.kernels.absorb_polygons_2d import kernel
 
-        positions = xp.ascontiguousarray(xp.asarray(positions, dtype=float))
+        positions = _c_ordered(positions)
         if rows is None:
             rows = xp.arange(positions.shape[1], dtype=xp.int64)
         rows = xp.asarray(rows, dtype=xp.int64)
         use_start = start is not None
         if use_start:
-            start = xp.ascontiguousarray(xp.asarray(start, dtype=float))
+            start = _c_ordered(start)
         hit = xp.empty(rows.shape[0], dtype=xp.int64)
         if rows.shape[0] == 0:
             return hit
@@ -127,6 +127,19 @@ class PolygonObjects:
             hit,
         )
         return hit
+
+
+def _c_ordered(points: Array) -> Array:
+    """``points`` as a float ``(2, N)`` array with C strides, copied only if needed.
+
+    A ``(2, 1)`` column picked by fancy indexing keeps Fortran strides that NumPy
+    still flags as C-contiguous; Pyccel checks the strides.
+    """
+    points = xp.ascontiguousarray(xp.asarray(points, dtype=float))
+    itemsize = points.dtype.itemsize
+    if tuple(points.strides) != (points.shape[1] * itemsize, itemsize):
+        points = points.copy(order="C")
+    return points
 
 
 def object_polygons(obj: object) -> list[np.ndarray] | None:
