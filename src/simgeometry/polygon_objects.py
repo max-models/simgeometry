@@ -123,7 +123,8 @@ class PolygonObjects:
             int(use_start),
             float(sweep_length) if use_start else 0.0,
             *self.kernel_arguments(),
-            alive,
+            # the CUDA version takes the mask as char (int8), the same bytes
+            alive.view(xp.int8) if xp.is_gpu(alive) and alive.dtype == bool else alive,
             hit,
         )
         return hit

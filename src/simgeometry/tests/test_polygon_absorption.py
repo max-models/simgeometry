@@ -227,3 +227,41 @@ def test_absorb_takes_a_single_column_with_fortran_strides():
     start = np.array([[6.0, 0.0], [5.0, 0.0]])[:, [0]]
     hit = packed.absorb(points, np.ones(1, dtype=bool), start=start)
     np.testing.assert_array_equal(hit, [0])
+
+
+FAKE_CUPY_CODE = """
+import cunumpy as xp
+import numpy as np
+from cunumpy.kernel_testing import emulated_launches
+
+from simgeometry.objects import Aperture2D, Polygon
+from simgeometry.polygon_objects import polygon_objects
+
+objects = [Aperture2D.slit(4.5, 2.0, 0.1, 5.0, position=5.0), Polygon(
+    [(7.0, 4.0), (8.0, 6.0), (9.0, 4.0)])]
+rng = np.random.default_rng(0)
+start = rng.uniform(0.0, 10.0, (2, 300))
+end = start + rng.normal(scale=1.5, size=(2, 300))
+results = []
+for backend in ("numpy", "cupy"):
+    with xp.use_backend(backend, strict=True), emulated_launches():
+        packed = polygon_objects(objects)
+        alive = xp.ones(300, dtype=bool)
+        hit = packed.absorb(xp.asarray(end), alive, start=xp.asarray(start))
+        assert (backend == "cupy") == xp.is_gpu(hit)
+        results.append((xp.to_numpy(hit), xp.to_numpy(alive)))
+assert set(np.unique(results[0][0])) == {-1, 0, 1}
+for a, b in zip(*results):
+    assert np.array_equal(a, b)
+print("ok")
+"""
+
+
+def test_absorb_on_the_cupy_backend_matches_numpy():
+    """The CUDA path of absorb (fake CuPy, emulated launches) against the host path."""
+    from cunumpy.kernel_testing import emulation_compiler, run_in_fake_cupy_subprocess
+
+    if emulation_compiler() is None:
+        pytest.skip("no C++ compiler")
+    result = run_in_fake_cupy_subprocess(FAKE_CUPY_CODE, timeout=300)
+    assert "ok" in result.stdout
