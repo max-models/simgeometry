@@ -7,6 +7,15 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `shape.yee_fractions(grid)` (`simgeometry.fractions.yee_fractions`): the cut-cell
+  geometry of a Yee grid in 2D and 3D, for conformal (Dey–Mittra-type) field solvers: the
+  fraction of every edge's length and every face's area inside the shape, the length of the
+  surface's trace in every face and that length weighted by the sine between the surface
+  and the face. Exact for planes; for curved surfaces second order (a circle's area and
+  perimeter, a sphere's area from the traces). Edges use all crossings, so slits narrower
+  than a cell are kept. Works for every shape `crossings` supports, sampled where it is not
+  analytic.
+
 - `Rectangle(..., fillet=r)`: a rectangle with rounded corners, up to a stadium at half
   the shorter side; `Cuboid(..., fillet=r)` rounds the edges and corners of a box, like
   the `fillet` of the solids of revolution. Both keep the exact level set (the rounded

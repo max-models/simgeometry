@@ -259,3 +259,12 @@ class GeometryAPI:
         from simgeometry.fractions import cell_fractions
 
         return cell_fractions(self, grid, samples_per_axis=samples_per_axis)
+
+    def yee_fractions(self, grid, **kwargs):
+        """Edge-length and face-area fractions of a Yee grid, and the surface's traces.
+
+        Exact for planes; see :func:`simgeometry.fractions.yee_fractions`.
+        """
+        from simgeometry.fractions import yee_fractions
+
+        return yee_fractions(self, grid, **kwargs)
