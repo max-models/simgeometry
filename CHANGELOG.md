@@ -7,6 +7,13 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `simgeometry.polygon_objects`: `polygon_objects(objects)` packs `Polygon` and
+  `Aperture2D` objects into flat arrays, and `PolygonObjects.absorb(positions, alive,
+  start=...)` absorbs the markers that end inside one or whose step crosses one of its
+  edges, exactly, with the object each marker hit first. The kernel
+  `simgeometry.kernels.absorb_polygons_2d` (Pyccel, NumPy, CUDA) and the shared hit test
+  (`polygon_hit.cuh`, `polygon_hits.py`) moved here from picnic, so picnic and tree-d-3d use
+  one implementation.
 - `shape.yee_fractions(grid)` (`simgeometry.fractions.yee_fractions`): the cut-cell
   geometry of a Yee grid in 2D and 3D, for conformal (Dey–Mittra-type) field solvers: the
   fraction of every edge's length and every face's area inside the shape, the length of the

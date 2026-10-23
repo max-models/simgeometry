@@ -254,6 +254,17 @@ be missed, and their normals are estimated (`exact` is `False`). A crossing at t
 start of a step is not reported, so a particle stopped on a surface is not counted twice;
 grazing contacts are not crossings.
 
+For many markers against fixed 2D obstacles, `simgeometry.polygon_objects.polygon_objects(objects)`
+packs the `Polygon` and `Aperture2D` objects (other shapes are left out) into flat arrays,
+and `packed.absorb(positions, alive, start=old_positions)` absorbs, in one compiled pass,
+the alive markers that end inside an object or whose step crosses one of its edges: exactly,
+so a step longer than a plate's thickness is caught. It sets `alive` to false for them and
+returns, per marker, the slot of the object met first along the step (`packed.index[slot]`
+is its position in `objects`; -1 for none). `sweep_length=` makes longer steps (wrapped by a
+periodic side) count by their end only. The kernel, `simgeometry.kernels.absorb_polygons_2d`,
+has Pyccel, NumPy and CUDA versions; `polygon_hit.cuh` and `polygon_hits.py` next to it
+are the hit test for kernels of other packages that fuse it into their own loops.
+
 `simgeometry.cut_edges.bracketed_edge_geometry()` is the batched geometry path for
 Picnic's Shortley–Weller stencil. It visits fluid nodes with solid neighbours and
 assumes a single crossing in each bracket. Fractions have no numerical lower clamp.
