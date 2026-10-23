@@ -37,6 +37,7 @@ shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show_3d(backend="pyvista")
 | `intersect_segment(start, end)` | Two coordinate vectors | Ordered hits, fractions, normals and crossing directions |
 | `cut_edges(grid)` | Grid | All detected edge hits with object identities |
 | `cell_fractions(grid)` | Grid | Approximate solid volume and face fractions |
+| `yee_fractions(grid)` | Grid | Edge-length and face-area fractions of a Yee grid and the surface's traces, exact for planes |
 | `collection.dirichlet_values(grid, t=...)` | Grid or `(ndim, n)` | Host labels and voltages; NaN outside conductors |
 | `to_mesh()` | Resolution and optional bounds | Vertices, connectivity, centres, normals and sampling spacing |
 
@@ -270,6 +271,27 @@ Boolean shapes instead expose only the resulting solid's boundary.
 On a 3D grid, `show_3d()` on either result draws the translucent surface and the
 crossings, with `normals=True` the outward normals and with `nodes=True` the solid grid
 nodes; `backend="pyvista"` returns a PyVista plotter, otherwise Matplotlib 3D axes.
+
+`shape.yee_fractions(grid)` gives the cut-cell geometry of a staggered (Yee) grid on the
+grid's nodes, 2D or 3D, for conformal finite-difference and finite-integration schemes
+(Dey–Mittra edges and faces, embedded boundaries). `edges[a]` is the fraction of each edge
+along axis `a` inside the shape (shape: cells along `a`, nodes across), `faces[a]` the
+fraction of each face normal to `a` (nodes along `a`, cells across; in 2D one family, the
+cells). `traces[a]` is the length of the curve where the surface crosses each face and
+`projected_traces[a]` that length weighted by `|n x e_a|`, the sine between the surface
+normal and the face's; summed over all faces, each times the spacing along its normal, the
+projected traces give twice the surface's area. On a periodic axis the last edge or face
+closes the period (no duplicate). Edge fractions use every crossing along the edge (so a
+slit narrower than a cell keeps its gap); face fractions and traces integrate lines across
+the face, piecewise Gauss–Legendre between the crossings on the face's edges, in both
+directions.
+Both are exact for planes; for curved surfaces they converge at second order or better (a
+circle's area and perimeter to `2e-7` at 80 cells across). A surface lying on grid lines
+(walls of an axis-aligned box or slit on node planes) is treated like a staircase: the edges
+and faces in it count as inside, whatever `contains` returns on the surface itself, and its trace
+counts for the face on its outside. Shapes without analytic crossings are
+sampled with `samples` points per segment. Where a shape has a level set, segments farther
+from the surface than half their length are not searched.
 
 `diagnose(grid)` reports node overlaps, objects without solid nodes, multiple-hit
 edges, and very short edge distances. These observations do not prove that all
