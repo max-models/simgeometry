@@ -7,6 +7,15 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `SlantedTube(start, end, inner_radius, outer_radius, cut_normal)`: a tube (a rod with
+  `inner_radius=0`) along any axis whose end at `end` is cut by the plane through `end`
+  with the outward normal `cut_normal`, such as an oven nozzle cut at 45°. Membership,
+  bounds, volume and surface area are exact; the level set is the larger of the distances
+  to the uncut tube and to the cut plane (exact on the faces, a bound near the cut's rim);
+  `crossings` are analytic (both walls, the flat end and the cut), so particles in a thin
+  duct find every wall. Meshes, `show_3d`, node masks and conductors work as for the other
+  solids. The tutorial "Shapes and node masks" shows one.
+
 - `Rectangle(..., fillet=r)`: a rectangle with rounded corners, up to a stadium at half
   the shorter side; `Cuboid(..., fillet=r)` rounds the edges and corners of a box, like
   the `fillet` of the solids of revolution. Both keep the exact level set (the rounded
