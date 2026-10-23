@@ -113,8 +113,10 @@ class YeeFractions:
     misses the face's quadrature lines is missed.
 
     A surface lying on grid lines (an axis-aligned wall on a node plane) is treated as
-    a staircase: the edges and faces in it are inside, whatever ``contains`` returns on
-    the surface, and its trace counts for the face on its outside, with sine one.
+    a staircase: points in a wall that lies in the grid plane of an edge or face count
+    as inside, whatever ``contains`` returns on the wall (so the edges and faces in it
+    are inside, also where the wall covers them only partly), and a wall along a face's
+    edge counts for the face on its outside, with sine one.
     """
 
     edges: tuple[np.ndarray, ...]
@@ -163,7 +165,23 @@ def _all_hits(geometry, start, end, *, samples, max_hits):
     return np.stack(found_t, axis=1), np.stack(found_n, axis=2)
 
 
-def _inside_length(geometry, start, end, t):
+def _staircase_mask(geometry, points, offsets):
+    """Membership where a surface on a grid plane counts as inside.
+
+    ``offsets`` are ``(axis, distance)`` pairs: a point is inside if it or one of its
+    neighbours at ``+-distance`` along ``axis`` is, so a point in a wall that lies in
+    the grid plane through it is inside, whatever ``contains`` returns on the wall.
+    """
+    inside = mask(geometry, points)
+    for axis, distance in offsets:
+        for sign in (-1.0, 1.0):
+            probe = points.copy()
+            probe[axis] += sign * distance
+            inside |= mask(geometry, probe)
+    return inside
+
+
+def _inside_length(geometry, start, end, t, offsets=()):
     """Fraction of each segment inside, from its sorted crossings ``t`` ``(n, k)``."""
     n = start.shape[1]
     breaks = np.concatenate(
@@ -173,7 +191,9 @@ def _inside_length(geometry, start, end, t):
     middle = 0.5 * (breaks[:, 1:] + breaks[:, :-1])
     step = end - start
     points = start[:, :, None] + step[:, :, None] * middle[None, :, :]
-    inside = mask(geometry, points.reshape(start.shape[0], -1)).reshape(middle.shape)
+    inside = _staircase_mask(
+        geometry, points.reshape(start.shape[0], -1), offsets
+    ).reshape(middle.shape)
     return np.sum(np.diff(breaks, axis=1) * inside, axis=1)
 
 
@@ -189,7 +209,7 @@ def _near(geometry, centres, radius):
     return np.abs(level_values(geometry, centres)) <= radius * (1 + 1e-9)
 
 
-def _segments_inside(geometry, start, end, *, samples, max_hits):
+def _segments_inside(geometry, start, end, *, samples, max_hits, offsets=()):
     """Inside fractions and crossings of segments; far ones by their midpoint."""
     n = start.shape[1]
     length = np.sqrt(np.sum((end - start) ** 2, axis=0))
@@ -206,25 +226,11 @@ def _segments_inside(geometry, start, end, *, samples, max_hits):
             samples=samples,
             max_hits=max_hits,
         )
-        fraction[chosen] = _inside_length(geometry, start[:, chosen], end[:, chosen], t)
+        fraction[chosen] = _inside_length(
+            geometry, start[:, chosen], end[:, chosen], t, offsets
+        )
         hits = np.full((n, t.shape[1]), np.nan)
         hits[chosen] = t
-        # an edge that lies in the surface (inside on one side, outside on another)
-        # counts as inside, whatever ``contains`` says on the surface itself
-        flat = chosen[np.all(np.isnan(t), axis=1) & (fraction[chosen] < 1)]
-        if flat.size:
-            axis = np.argmax(np.abs(end[:, flat] - start[:, flat]), axis=0)
-            some_in = np.zeros(flat.size, dtype=bool)
-            some_out = np.zeros(flat.size, dtype=bool)
-            for other in range(start.shape[0]):
-                across = axis != other
-                for sign in (-1.0, 1.0):
-                    probe = middle[:, flat].copy()
-                    probe[other] += sign * _NUDGE * length[flat]
-                    state = mask(geometry, probe)
-                    some_in |= across & state
-                    some_out |= across & ~state
-            fraction[flat[some_in & some_out]] = 1.0
     return fraction, hits
 
 
@@ -264,8 +270,10 @@ def yee_fractions(geometry, grid, *, samples=64, max_hits=16):
         start = corners(shape)
         end = start.copy()
         end[a] += h[a]
+        # a wall along the edge (in a grid plane through it) counts as inside
+        offsets = [(b, _NUDGE * h[b]) for b in range(ndim) if b != a]
         fraction, t = _segments_inside(
-            geometry, start, end, samples=samples, max_hits=max_hits
+            geometry, start, end, samples=samples, max_hits=max_hits, offsets=offsets
         )
         edges.append(fraction.reshape(shape))
         hits.append(t.reshape(*shape, t.shape[1]))
@@ -328,23 +336,47 @@ def _lines_across(geometry, starts, stops, along, across, h, samples, max_hits):
     # inside, sampled at the middle of each piece (away from the crossings); it counts
     # for the face outside, with sine one
     nudge = _NUDGE * h[along]
+    # a wall in the face's plane counts as inside
+    offsets = (
+        [(3 - along - across, _NUDGE * h[3 - along - across])] if ndim == 3 else []
+    )
     ends_on_edge, ends_differ = [], []
     for point, inward in ((start, 1.0), (end, -1.0)):
         middle = point.reshape(ndim, m, -1, 3)[:, :, :, 1].reshape(ndim, -1)
         near_side, far_side = middle.copy(), middle.copy()
         near_side[along] += inward * nudge
         far_side[along] -= inward * nudge
-        near_in, far_in = mask(geometry, near_side), mask(geometry, far_side)
+        near_in = _staircase_mask(geometry, near_side, offsets)
+        far_in = _staircase_mask(geometry, far_side, offsets)
         ends_on_edge.append(np.repeat(~near_in & far_in, 3))
         ends_differ.append(np.repeat(near_in != far_in, 3))
     on_edges = (1.0 * ends_on_edge[0] + ends_on_edge[1]).reshape(m, -1)
     along_edges = h[across] * np.sum(weights * on_edges, axis=1)
     t, normal = _all_hits(geometry, start, end, samples=samples, max_hits=max_hits)
+    # a wall in the face's plane counts as inside; a crossing with that inside on both
+    # sides (the edge of such a wall) is not one
+    offsets = (
+        [(3 - along - across, _NUDGE * h[3 - along - across])] if ndim == 3 else []
+    )
+    if offsets and t.shape[1]:
+        found = np.isfinite(t)
+        rows, cols = np.nonzero(found)
+        step = end[:, rows] - start[:, rows]
+        sides = [
+            _staircase_mask(
+                geometry, start[:, rows] + (t[rows, cols] + shift) * step, offsets
+            )
+            for shift in (-1e-6, 1e-6)
+        ]
+        hidden = np.zeros_like(found)
+        hidden[rows, cols] = sides[0] & sides[1]
+        t = np.where(hidden, np.nan, t)
+        normal = np.where(hidden[None], np.nan, normal)
     # a crossing at the line's end, on an edge the surface runs along, is the edge's
     # (counted above, for the face outside)
     at_edge = (t > 1.0 - 1e-9) & ends_differ[1][:, None]
     normal = np.where(at_edge[None], 0.0, np.nan_to_num(normal, nan=0.0))
-    inside = _inside_length(geometry, start, end, t).reshape(m, -1)
+    inside = _inside_length(geometry, start, end, t, offsets).reshape(m, -1)
     n_along = np.abs(normal[along])
     n_plane = np.hypot(normal[along], normal[across])
     plain = np.sum(
@@ -476,15 +508,4 @@ def _face_integrals(
     area[chosen] = 0.5 * (areas[0] + areas[1])
     # the quadrature's round-off next to fully inside or outside faces
     area = np.where(area < 1e-12, 0.0, np.where(area > 1 - 1e-12, 1.0, area))
-    if ndim == 3:
-        # a face that lies in the surface (inside on one side) counts as inside
-        normal_axis = 3 - b - c
-        flat = chosen[area[chosen] == 0.0]
-        if flat.size:
-            sides = []
-            for sign in (-1.0, 1.0):
-                probe = centres[:, flat].copy()
-                probe[normal_axis] += sign * _NUDGE * h[normal_axis]
-                sides.append(mask(geometry, probe))
-            area[flat[sides[0] != sides[1]]] = 1.0
     return area, trace, projected
