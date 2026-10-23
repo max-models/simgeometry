@@ -78,6 +78,8 @@ _NUDGE = 1e-9
 #: Three-point Gauss-Legendre rule on [0, 1].
 _GAUSS_POINTS = 0.5 + 0.5 * np.sqrt(0.6) * np.array([-1.0, 0.0, 1.0])
 _GAUSS_WEIGHTS = np.array([5.0, 8.0, 5.0]) / 18.0
+#: The turn of a trace's normal between neighbouring lines taken for a corner.
+_KINK_SINE = 0.05
 
 
 @dataclass(frozen=True)
@@ -298,6 +300,109 @@ def yee_fractions(geometry, grid, *, samples=64, max_hits=16):
     )
 
 
+def _lines_across(geometry, starts, stops, along, across, h, samples, max_hits):
+    """Integrate lines along ``along`` across faces, between breakpoints ``stops``.
+
+    ``starts`` are the faces' lower corners ``(ndim, m)``, ``stops`` relative
+    positions along ``across`` (NaN for none). Returns the inside fraction, the trace
+    and the projected trace of every face, and the lines' positions ``(m, p)``,
+    crossings ``(m, p, k)`` and in-plane normals ``(2, m, p, k)`` (along, across).
+    """
+    ndim, m = starts.shape
+    stops = np.where(np.isnan(stops), 1.0, stops)
+    stops = np.sort(
+        np.concatenate([np.zeros((m, 1)), stops, np.ones((m, 1))], axis=1), axis=1
+    )
+    low, high = stops[:, :-1], stops[:, 1:]
+    # three Gauss-Legendre points per piece: inside it, never at a breakpoint, where a
+    # crossing appears or disappears
+    positions = low[:, :, None] + (high - low)[:, :, None] * _GAUSS_POINTS
+    weights = ((high - low)[:, :, None] * _GAUSS_WEIGHTS).reshape(m, -1)
+    count = positions.shape[1] * 3
+    start = np.repeat(starts, count, axis=1)
+    start[across] += positions.reshape(-1) * h[across]
+    end = start.copy()
+    end[along] += h[along]
+    # a surface along the face's edges (on a grid line): the edges along ``across`` at
+    # the lines' ends, where the face's side is outside and the side across the edge
+    # inside, sampled at the middle of each piece (away from the crossings); it counts
+    # for the face outside, with sine one
+    nudge = _NUDGE * h[along]
+    ends_on_edge, ends_differ = [], []
+    for point, inward in ((start, 1.0), (end, -1.0)):
+        middle = point.reshape(ndim, m, -1, 3)[:, :, :, 1].reshape(ndim, -1)
+        near_side, far_side = middle.copy(), middle.copy()
+        near_side[along] += inward * nudge
+        far_side[along] -= inward * nudge
+        near_in, far_in = mask(geometry, near_side), mask(geometry, far_side)
+        ends_on_edge.append(np.repeat(~near_in & far_in, 3))
+        ends_differ.append(np.repeat(near_in != far_in, 3))
+    on_edges = (1.0 * ends_on_edge[0] + ends_on_edge[1]).reshape(m, -1)
+    along_edges = h[across] * np.sum(weights * on_edges, axis=1)
+    t, normal = _all_hits(geometry, start, end, samples=samples, max_hits=max_hits)
+    # a crossing at the line's end, on an edge the surface runs along, is the edge's
+    # (counted above, for the face outside)
+    at_edge = (t > 1.0 - 1e-9) & ends_differ[1][:, None]
+    normal = np.where(at_edge[None], 0.0, np.nan_to_num(normal, nan=0.0))
+    inside = _inside_length(geometry, start, end, t).reshape(m, -1)
+    n_along = np.abs(normal[along])
+    n_plane = np.hypot(normal[along], normal[across])
+    plain = np.sum(
+        np.where(n_plane > 0, n_along / np.where(n_plane > 0, n_plane, 1.0), 0.0),
+        axis=-1,
+    ).reshape(m, -1)
+    area = np.sum(weights * inside, axis=1)
+    trace = along_edges + h[across] * np.sum(weights * plain, axis=1)
+    projected = along_edges + h[across] * np.sum(
+        weights * np.sum(n_along, axis=-1).reshape(m, -1), axis=1
+    )
+    k = t.shape[1]
+    t = np.where(at_edge, np.nan, t)
+    in_plane = np.stack([normal[along], normal[across]]).reshape(2, m, -1, k)
+    return (
+        area,
+        trace,
+        projected,
+        positions.reshape(m, -1),
+        t.reshape(m, -1, k),
+        in_plane,
+    )
+
+
+def _kinks(positions, t, normals, h_along, h_across):
+    """Corners of the traces between neighbouring lines, relative positions ``(m, j)``.
+
+    Crossings are matched by their order on lines with as many crossings; where the
+    normals of a matched pair differ, the tangents through the two crossings meet at
+    the corner if the trace is straight on both sides of it. A meeting point strictly
+    between the two lines and inside the face is returned (NaN otherwise); on a
+    coarsely resolved curved trace it is a harmless extra breakpoint.
+    """
+    m, p, k = t.shape
+    if p < 2 or k == 0:
+        return np.full((m, 0), np.nan)
+    counts = np.sum(np.isfinite(t), axis=2)
+    same = counts[:, :-1] == counts[:, 1:]
+    x0, x1 = t[:, :-1] * h_along, t[:, 1:] * h_along  # along, (m, p - 1, k)
+    y0 = (positions[:, :-1] * h_across)[:, :, None]
+    y1 = (positions[:, 1:] * h_across)[:, :, None]
+    a0, b0 = normals[0][:, :-1], normals[1][:, :-1]
+    a1, b1 = normals[0][:, 1:], normals[1][:, 1:]
+    det = a0 * b1 - b0 * a1
+    norm = np.hypot(a0, b0) * np.hypot(a1, b1)
+    # a corner, not the slow turn of a resolved curved trace (about 3 degrees)
+    turning = np.abs(det) > _KINK_SINE * np.where(norm > 0, norm, np.inf)
+    ok = turning & same[:, :, None] & np.isfinite(x0) & np.isfinite(x1)
+    safe = np.where(ok, det, 1.0)
+    r0 = a0 * x0 + b0 * y0
+    r1 = a1 * x1 + b1 * y1
+    x = (r0 * b1 - b0 * r1) / safe
+    y = (a0 * r1 - r0 * a1) / safe
+    inside = ok & (y > y0) & (y < y1) & (x > 0) & (x < h_along)
+    corner = np.where(inside, y / h_across, np.nan)
+    return corner.reshape(m, -1)
+
+
 def _face_integrals(
     geometry, shape, starts, b, c, hits, h, nodes, periodic, *, samples, max_hits
 ):
@@ -344,59 +449,30 @@ def _face_integrals(
         return area, trace, projected
     areas = []
     for along, across, breaks in ((b, c, breaks_c), (c, b, breaks_b)):
-        m = chosen.size
         stops = np.where(np.isnan(breaks[chosen]), 1.0, breaks[chosen])
-        stops = np.sort(
-            np.concatenate([np.zeros((m, 1)), stops, np.ones((m, 1))], axis=1),
-            axis=1,
+        result = _lines_across(
+            geometry, starts[:, chosen], stops, along, across, h, samples, max_hits
         )
-        low, high = stops[:, :-1], stops[:, 1:]
-        # three Gauss-Legendre points per piece: inside it, never at a breakpoint,
-        # where a crossing appears or disappears
-        positions = low[:, :, None] + (high - low)[:, :, None] * _GAUSS_POINTS
-        weights = (high - low)[:, :, None] * _GAUSS_WEIGHTS
-        count = positions.shape[1] * 3
-        start = np.repeat(starts[:, chosen], count, axis=1)
-        start[across] += positions.reshape(-1) * h[across]
-        end = start.copy()
-        end[along] += h[along]
-        weights = weights.reshape(m, -1)
-        # a surface along the face's edges (on a grid line): the edges along
-        # ``across`` at the lines' ends, where the face's side is outside and the
-        # side across the edge inside, sampled at the middle of each piece (away from
-        # the crossings); it counts for the face outside, with sine one
-        nudge = _NUDGE * h[along]
-        ends_on_edge, ends_differ = [], []
-        for point, inward in ((start, 1.0), (end, -1.0)):
-            middle = point.reshape(ndim, m, -1, 3)[:, :, :, 1].reshape(ndim, -1)
-            near_side, far_side = middle.copy(), middle.copy()
-            near_side[along] += inward * nudge
-            far_side[along] -= inward * nudge
-            near_in, far_in = mask(geometry, near_side), mask(geometry, far_side)
-            ends_on_edge.append(np.repeat(~near_in & far_in, 3))
-            ends_differ.append(np.repeat(near_in != far_in, 3))
-        along_edges = h[across] * np.sum(
-            weights * (1.0 * ends_on_edge[0] + ends_on_edge[1]).reshape(m, -1), axis=1
-        )
-        trace[chosen] += along_edges
-        projected[chosen] += along_edges
-        t, normal = _all_hits(geometry, start, end, samples=samples, max_hits=max_hits)
-        # a crossing at the line's end, on an edge the surface runs along, is the
-        # edge's (counted above, for the face outside)
-        at_edge = (t > 1.0 - 1e-9) & ends_differ[1][:, None]
-        normal = np.where(at_edge[None], 0.0, np.nan_to_num(normal, nan=0.0))
-        inside = _inside_length(geometry, start, end, t).reshape(m, -1)
-        n_along = np.abs(normal[along])
-        n_plane = np.hypot(normal[along], normal[across])
-        plain = np.sum(
-            np.where(n_plane > 0, n_along / np.where(n_plane > 0, n_plane, 1.0), 0.0),
-            axis=-1,
-        ).reshape(m, -1)
-        areas.append(np.sum(weights * inside, axis=1))
-        trace[chosen] += h[across] * np.sum(weights * plain, axis=1)
-        projected[chosen] += h[across] * np.sum(
-            weights * np.sum(n_along, axis=-1).reshape(m, -1), axis=1
-        )
+        # a corner of the surface inside the face (a kink of the integrands): where
+        # the tangents of the trace at neighbouring lines meet, a new breakpoint
+        kinks = _kinks(*result[3:], h[along], h[across])
+        again = np.flatnonzero(np.any(np.isfinite(kinks), axis=1))
+        if again.size:
+            refined = _lines_across(
+                geometry,
+                starts[:, chosen[again]],
+                np.concatenate([stops[again], kinks[again]], axis=1),
+                along,
+                across,
+                h,
+                samples,
+                max_hits,
+            )
+            for value, update in zip(result[:3], refined[:3]):
+                value[again] = update
+        areas.append(result[0])
+        trace[chosen] += result[1]
+        projected[chosen] += result[2]
     area[chosen] = 0.5 * (areas[0] + areas[1])
     # the quadrature's round-off next to fully inside or outside faces
     area = np.where(area < 1e-12, 0.0, np.where(area > 1 - 1e-12, 1.0, area))
