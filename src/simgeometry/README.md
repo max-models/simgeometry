@@ -44,5 +44,5 @@ executed into the documentation site.
 
 ## Subpackages
 
-- `objects/` - Concrete geometric objects that can be embedded in a simulation domain, including the solids of revolution `Cylinder`, `Tube`, `Cone` and `Torus` (`objects/axisymmetric.py` holds their common frame).
+- `objects/` - Concrete geometric objects that can be embedded in a simulation domain, including the solids of revolution `Cylinder`, `Tube`, `Cone` and `Torus` (`objects/axisymmetric.py` holds their common frame), and `SlantedTube`, a tube with a slanted end.
 - `tests/` - Test modules for `simgeometry`.

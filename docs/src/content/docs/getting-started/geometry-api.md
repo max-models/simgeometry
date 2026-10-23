@@ -145,6 +145,7 @@ and where `level_set_exact` is true it is the Euclidean signed distance.
 | `Polygon`, `Triangle` | exact: distance to the nearest edge, signed by `contains` (one pass per edge) |
 | `Aperture2D` | exact while the plates do not touch |
 | `Cylinder`, `Tube`, `Cone`, `Torus` (any axis, with or without fillets) | exact |
+| `SlantedTube` | the larger of the uncut tube's and the cut plane's: exact on the faces, a bound near the cut's rim |
 | `a \| b`, `a & b`, `a - b` | `min(a, b)`, `max(a, b)`, `max(a, -b)`: a bound, not exact |
 | rotations, translations, reflections, uniform scaling | exact if the source is |
 | nonuniform scaling, shears | the source's times the smallest stretch: a bound |
@@ -247,7 +248,7 @@ end positions, first crosses the shape's boundary, entering or leaving. It retur
 `fraction` in (0, 1], `point` and a unit `normal` pointing out of the region where
 `contains` is true. Because the whole step is tested, a fast particle cannot pass through a
 thin plate between two end points. Polygonal 2D shapes, polylines, circles, spheres,
-axis-aligned boxes and their affine transforms are exact. Other shapes are sampled at
+axis-aligned boxes, slanted tubes and their affine transforms are exact. Other shapes are sampled at
 `samples` points per step and bisected, so features thinner than `1 / samples` of a step can
 be missed, and their normals are estimated (`exact` is `False`). A crossing at the very
 start of a step is not reported, so a particle stopped on a surface is not counted twice;

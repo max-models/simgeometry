@@ -13,5 +13,6 @@ Concrete geometric objects that can be embedded in a simulation domain.
 - `polygon.py` - Polygon helpers for geometric object definitions.
 - `polyline.py` - Open polylines: curves of zero thickness (thin plates, wires).
 - `rectangle.py` - Rectangles, optionally with rounded corners (stadiums).
+- `slanted_tube.py` - Tubes and rods whose far end is cut by a slanted plane.
 - `sphere.py` - Sphere helpers for geometric object definitions.
 - `triangle.py` - Triangle helpers for geometric object definitions.
