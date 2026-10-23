@@ -73,8 +73,11 @@ def cell_fractions(geometry, grid, *, samples_per_axis=4):
 
 
 #: Relative step past a crossing before the next one is searched for, and the
-#: offset of the quadrature lines from the breakpoints of a face's integrand.
+#: offset of the membership probes beside an edge.
 _NUDGE = 1e-9
+#: Three-point Gauss-Legendre rule on [0, 1].
+_GAUSS_POINTS = 0.5 + 0.5 * np.sqrt(0.6) * np.array([-1.0, 0.0, 1.0])
+_GAUSS_WEIGHTS = np.array([5.0, 8.0, 5.0]) / 18.0
 
 
 @dataclass(frozen=True)
@@ -99,13 +102,17 @@ class YeeFractions:
 
     Fluid (outside) fractions are one minus these. Edge fractions come from all the
     crossings along each edge (``crossings``, repeated); face fractions and traces
-    integrate the crossings of lines across the face, piecewise Simpson between the
-    face's edge crossings, in both directions. Both are exact for planes (straight
+    integrate the crossings of lines across the face, piecewise Gauss-Legendre
+    between the face's edge crossings, in both directions. Both are exact for planes (straight
     traces) up to the crossings' accuracy; for curved surfaces the face fractions and
     traces converge at second order or better. Shapes without an analytic crossing
     are sampled (``samples`` points per segment), so features thinner than a
     ``samples``-th of a cell can be missed; a feature that crosses no edge of a face and
     misses the face's quadrature lines is missed.
+
+    A surface lying on grid lines (an axis-aligned wall on a node plane) is treated as
+    a staircase: the edges in it are inside, whatever ``contains`` returns on the
+    surface, and its trace counts for the face on its outside, with sine one.
     """
 
     edges: tuple[np.ndarray, ...]
@@ -199,6 +206,22 @@ def _segments_inside(geometry, start, end, *, samples, max_hits):
         fraction[chosen] = _inside_length(geometry, start[:, chosen], end[:, chosen], t)
         hits = np.full((n, t.shape[1]), np.nan)
         hits[chosen] = t
+        # an edge that lies in the surface (inside on one side, outside on another)
+        # counts as inside, whatever ``contains`` says on the surface itself
+        flat = chosen[np.all(np.isnan(t), axis=1) & (fraction[chosen] < 1)]
+        if flat.size:
+            axis = np.argmax(np.abs(end[:, flat] - start[:, flat]), axis=0)
+            some_in = np.zeros(flat.size, dtype=bool)
+            some_out = np.zeros(flat.size, dtype=bool)
+            for other in range(start.shape[0]):
+                across = axis != other
+                for sign in (-1.0, 1.0):
+                    probe = middle[:, flat].copy()
+                    probe[other] += sign * _NUDGE * length[flat]
+                    state = mask(geometry, probe)
+                    some_in |= across & state
+                    some_out |= across & ~state
+            fraction[flat[some_in & some_out]] = 1.0
     return fraction, hits
 
 
@@ -327,31 +350,53 @@ def _face_integrals(
             axis=1,
         )
         low, high = stops[:, :-1], stops[:, 1:]
-        # one-sided values at the ends of each piece: a crossing that appears at a
-        # breakpoint belongs to one side only
-        positions = np.stack(
-            [low + _NUDGE, 0.5 * (low + high), high - _NUDGE], axis=-1
-        )  # (m, pieces, 3)
-        weights = (high - low)[:, :, None] * np.array([1.0, 4.0, 1.0]) / 6.0
+        # three Gauss-Legendre points per piece: inside it, never at a breakpoint,
+        # where a crossing appears or disappears
+        positions = low[:, :, None] + (high - low)[:, :, None] * _GAUSS_POINTS
+        weights = (high - low)[:, :, None] * _GAUSS_WEIGHTS
         count = positions.shape[1] * 3
         start = np.repeat(starts[:, chosen], count, axis=1)
         start[across] += positions.reshape(-1) * h[across]
         end = start.copy()
         end[along] += h[along]
+        weights = weights.reshape(m, -1)
+        # a surface along the face's edges (on a grid line): the edges along
+        # ``across`` at the lines' ends, where the face's side is outside and the
+        # side across the edge inside, sampled at the middle of each piece (away from
+        # the crossings); it counts for the face outside, with sine one
+        nudge = _NUDGE * h[along]
+        ends_on_edge, ends_differ = [], []
+        for point, inward in ((start, 1.0), (end, -1.0)):
+            middle = point.reshape(ndim, m, -1, 3)[:, :, :, 1].reshape(ndim, -1)
+            near_side, far_side = middle.copy(), middle.copy()
+            near_side[along] += inward * nudge
+            far_side[along] -= inward * nudge
+            near_in, far_in = mask(geometry, near_side), mask(geometry, far_side)
+            ends_on_edge.append(np.repeat(~near_in & far_in, 3))
+            ends_differ.append(np.repeat(near_in != far_in, 3))
+        along_edges = h[across] * np.sum(
+            weights * (1.0 * ends_on_edge[0] + ends_on_edge[1]).reshape(m, -1), axis=1
+        )
+        trace[chosen] += along_edges
+        projected[chosen] += along_edges
         t, normal = _all_hits(geometry, start, end, samples=samples, max_hits=max_hits)
+        # a crossing at the line's end, on an edge the surface runs along, is the
+        # edge's (counted above, for the face outside)
+        at_edge = (t > 1.0 - 1e-9) & ends_differ[1][:, None]
+        normal = np.where(at_edge[None], 0.0, np.nan_to_num(normal, nan=0.0))
         inside = _inside_length(geometry, start, end, t).reshape(m, -1)
-        normal = np.nan_to_num(normal, nan=0.0)
         n_along = np.abs(normal[along])
         n_plane = np.hypot(normal[along], normal[across])
         plain = np.sum(
             np.where(n_plane > 0, n_along / np.where(n_plane > 0, n_plane, 1.0), 0.0),
             axis=-1,
         ).reshape(m, -1)
-        weights = weights.reshape(m, -1)
         areas.append(np.sum(weights * inside, axis=1))
         trace[chosen] += h[across] * np.sum(weights * plain, axis=1)
         projected[chosen] += h[across] * np.sum(
             weights * np.sum(n_along, axis=-1).reshape(m, -1), axis=1
         )
     area[chosen] = 0.5 * (areas[0] + areas[1])
+    # the quadrature's round-off next to fully inside or outside faces
+    area = np.where(area < 1e-12, 0.0, np.where(area > 1 - 1e-12, 1.0, area))
     return area, trace, projected

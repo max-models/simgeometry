@@ -282,9 +282,13 @@ normal and the face's; summed over all faces, each times the spacing along its n
 projected traces give twice the surface's area. On a periodic axis the last edge or face
 closes the period (no duplicate). Edge fractions use every crossing along the edge (so a
 slit narrower than a cell keeps its gap); face fractions and traces integrate lines across
-the face, piecewise Simpson between the crossings on the face's edges, in both directions.
-Both are exact for planes; for curved surfaces they converge at second order (a circle's
-area and perimeter to `2e-5` at 80 cells across). Shapes without analytic crossings are
+the face, piecewise Gauss–Legendre between the crossings on the face's edges, in both
+directions.
+Both are exact for planes; for curved surfaces they converge at second order or better (a
+circle's area and perimeter to `2e-7` at 80 cells across). A surface lying on grid lines
+(walls of an axis-aligned box or slit on node planes) is treated like a staircase: the edges
+in it count as inside, whatever `contains` returns on the surface itself, and its trace
+counts for the face on its outside. Shapes without analytic crossings are
 sampled with `samples` points per segment. Where a shape has a level set, segments farther
 from the surface than half their length are not searched.
 

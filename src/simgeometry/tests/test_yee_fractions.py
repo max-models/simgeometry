@@ -229,3 +229,34 @@ def test_method_and_validation():
         yee_fractions(Sphere((0, 0, 0), 1), grid)
     with pytest.raises(ValueError, match="max_hits"):
         yee_fractions(circle, grid, max_hits=0)
+
+
+def test_surfaces_on_grid_lines_like_a_staircase():
+    """Walls on node planes: their edges count as inside, the trace as the outside's.
+
+    The plate minus a slit has its walls on grid lines, where ``contains`` of a
+    difference is false; a box conductor's surface, where it is true. Both give the
+    staircase: the edges in a wall are inside, and each wall counts for the cell on
+    its outside.
+    """
+    h = 0.25
+    grid = Grid(2, (-1, -1), (1, 1), (9, 9))
+    plate = Rectangle((0, 0), (20, 20)) - Rectangle((0.375, 0), (0.25, 40))
+    result = yee_fractions(plate, grid)
+    np.testing.assert_array_equal(result.edges[1][[5, 6]], 1.0)  # the walls
+    np.testing.assert_array_equal(result.faces[0][5], 0.0)  # the slit's cells
+    np.testing.assert_allclose(result.traces[0][5], 2 * h)
+    np.testing.assert_allclose(np.delete(result.traces[0], 5, axis=0), 0.0)
+    box = Cuboid((0, 0.125, 0), (1.0, 0.75, 1.0))  # faces on node planes
+    grid3 = Grid(3, (-1, -1, -1), (1, 1, 1), (9, 9, 9))
+    solid = yee_fractions(box, grid3)
+    total = sum(solid.traces[a].sum() * h for a in range(3))
+    # each wall is counted by the faces normal to its two tangents, in every node
+    # plane across it including those at its ends (the staircase's corner edges):
+    # x-walls 4 y-planes * 1.0 + 5 z-planes * 0.75, y-walls 2 * 5 * 1.0, z-walls
+    # 5 * 0.75 + 4 * 1.0, each times h, both sides
+    expected = 2 * h * ((4 * 1.0 + 5 * 0.75) + (5 + 5) + (5 * 0.75 + 4 * 1.0))
+    assert total == pytest.approx(expected)
+    np.testing.assert_array_equal(solid.traces[0], solid.projected_traces[0])
+    inside = (solid.faces[2] > 0) & (solid.faces[2] < 1)
+    assert not inside.any()
