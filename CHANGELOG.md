@@ -13,8 +13,8 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   surface's trace in every face and that length weighted by the sine between the surface
   and the face. Exact for planes; for curved surfaces second order (a circle's area and
   perimeter, a sphere's area from the traces). Edges use all crossings, so slits narrower
-  than a cell are kept. Works for every shape `crossings` supports, sampled where it is not
-  analytic.
+  than a cell are kept; walls on grid lines count like a staircase. Works for every shape
+  `crossings` supports, sampled where it is not analytic.
 
 - `Rectangle(..., fillet=r)`: a rectangle with rounded corners, up to a stadium at half
   the shorter side; `Cuboid(..., fillet=r)` rounds the edges and corners of a box, like
