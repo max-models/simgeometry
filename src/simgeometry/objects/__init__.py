@@ -13,6 +13,7 @@ from simgeometry.objects.line import Line
 from simgeometry.objects.polygon import Polygon
 from simgeometry.objects.polyline import Polyline
 from simgeometry.objects.rectangle import Rectangle
+from simgeometry.objects.slanted_tube import SlantedTube
 
 # 3D objects
 from simgeometry.objects.sphere import Sphere
@@ -35,6 +36,7 @@ __all__ = [
     "Polygon",
     "Polyline",
     "Rectangle",
+    "SlantedTube",
     # 3D objects
     "Sphere",
     "Torus",

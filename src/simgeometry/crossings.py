@@ -5,8 +5,8 @@
 shape's boundary, entering or leaving. Because the whole step is tested, not only its
 end point, a fast particle cannot pass through a thin plate unnoticed.
 
-Polygonal 2D shapes (exact outlines), circles, spheres and axis-aligned boxes, also
-with rounded edges (``fillet``), are analytic; affine transforms of them stay analytic. Every other shape (Boolean
+Polygonal 2D shapes (exact outlines), circles, spheres, slanted tubes and axis-aligned
+boxes, also with rounded edges (``fillet``), are analytic; affine transforms of them stay analytic. Every other shape (Boolean
 combinations, collections, function objects, ...) is sampled: membership is tested at
 ``samples`` points along each step and the first change is bisected, so features
 thinner than ``1 / samples`` of a step can be missed, and the normals are estimated.
@@ -93,6 +93,7 @@ def _first(shape, a, d, samples, iterations):
         Line,
         Polygon,
         Rectangle,
+        SlantedTube,
         Sphere,
         Triangle,
     )
@@ -102,6 +103,9 @@ def _first(shape, a, d, samples, iterations):
         return _transformed(shape, a, d, samples, iterations)
     if isinstance(shape, (Circle, Sphere)):
         return (*_ball(shape, a, d), True)
+    if isinstance(shape, SlantedTube):
+        t, normal = shape._first_crossing(a, d, START_TOLERANCE)
+        return t, _flip(shape, normal), True
     if isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0:
         return (*_rounded_box(shape, a, d), True)
     if isinstance(shape, (Rectangle, Cuboid, Line)):
