@@ -24,7 +24,7 @@ class Grid(BoundingBox):
         num_ghost_points: int = 0,
         comm: MPI.Comm | None = None,
         domain_decomposition: ConfigValue = None,
-        periodic: bool | None = None,
+        periodic: bool | tuple[bool, ...] | None = None,
     ) -> None:
         """
         Initialize a grid.
