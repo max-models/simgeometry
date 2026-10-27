@@ -117,6 +117,9 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The kernels are built with cunumpy's `KernelPackage`
+  (`simgeometry.kernels.KERNEL_PACKAGE`): `kernels/_build.py`, `kernels/_metal.py` and
+  `kernels/compile.py` are gone, and the build cache is still `SIMGEOMETRY_KERNEL_CACHE`.
 - `__version__` is read from the installed package metadata (`importlib.metadata`), not hardcoded,
   so it can no longer disagree with `pyproject.toml` (the 0.1.1 wheel reported 0.1.0).
 - One out-of-range rule for owners: per axis, positions below the lower bound belong to the

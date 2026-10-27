@@ -1,7 +1,7 @@
 """The Metal version (Apple-silicon GPU, float32) of the ``contains_ball`` kernel.
 
 ``contains_ball_pyccel.py`` next to this file is the CPU version with the same
-arguments. One thread per marker (``positions`` is ``(ndim, N)``); see :mod:`simgeometry.kernels._metal`. The test is
+arguments. One thread per marker (``positions`` is ``(ndim, N)``); see :mod:`simgeometry.kernels`. The test is
 done in float32, so a marker within about 1e-7 (relative) of the boundary may be
 classified differently from the CPU version.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from simgeometry._types import Array
-from simgeometry.kernels._metal import make_kernel
+from simgeometry.kernels import KERNEL_PACKAGE
 
 _SOURCE = """
     uint marker = thread_position_in_grid.x;
@@ -28,7 +28,7 @@ _SOURCE = """
     inside_flag[marker] = inside ? 1 : 0;
 """
 
-_KERNEL = make_kernel(
+_KERNEL = KERNEL_PACKAGE.metal_kernel(
     "simgeometry_contains_ball",
     _SOURCE,
     inputs=["positions", "midpoint", "params"],
