@@ -30,6 +30,15 @@ class Cuboid(Shape3D):
     has_level_set = True
     level_set_exact = True
 
+    def _box_bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """The lower and upper corners, as host floats on any backend."""
+        half_lengths = tuple(float(v) / 2 for v in self.side_lengths)
+        midpoint = tuple(float(v) for v in self.midpoint)
+        return (
+            tuple(map(sub, midpoint, half_lengths)),
+            tuple(map(add, midpoint, half_lengths)),
+        )
+
     def __init__(
         self,
         midpoint: BoundsLike,
@@ -62,15 +71,6 @@ class Cuboid(Shape3D):
 
         # Calculate bounds based on the midpoint and side lengths
         super().__init__(*self._box_bounds())
-
-    def _box_bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """The lower and upper corners, as host floats on any backend."""
-        half_lengths = tuple(float(v) / 2 for v in self.side_lengths)
-        midpoint = tuple(float(v) for v in self.midpoint)
-        return (
-            tuple(map(sub, midpoint, half_lengths)),
-            tuple(map(add, midpoint, half_lengths)),
-        )
 
     def mirror(self, axis: int, position: float) -> None:
         """
@@ -117,6 +117,21 @@ class Cuboid(Shape3D):
 
         self.set_bounding_box(*self._box_bounds())
 
+    def _slice_outline(self, slice_axis: int, slice_position: float) -> np.ndarray:
+        """The ``(n, 2)`` outline of a rounded cuboid's slice, a rounded rectangle."""
+        from simgeometry.objects.rectangle import Rectangle
+
+        r = self.fillet
+        lower = np.asarray(xp.to_numpy(xp.asarray(self.lower_bound)), float)
+        upper = np.asarray(xp.to_numpy(xp.asarray(self.upper_bound)), float)
+        centre, half = 0.5 * (lower + upper), 0.5 * (upper - lower)
+        depth = abs(slice_position - centre[slice_axis]) - (half[slice_axis] - r)
+        radius = float(np.sqrt(max(r * r - max(depth, 0.0) ** 2, 0.0)))
+        others = [(slice_axis + 1) % 3, (slice_axis + 2) % 3]
+        sides = 2 * (half[others] - r + radius)
+        section = Rectangle(tuple(centre[others]), tuple(sides), fillet=radius)
+        return section.outlines()[0].T
+
     def get_vertices(self, slice_axis: int, slice_position: float) -> ConfigValue:
         """
         Get the corner vertices of a slice of the cuboid along a given axis.
@@ -156,21 +171,6 @@ class Cuboid(Shape3D):
         # TODO: Is this inverted stuff even working?
         return xp.array(vertices), inverted
 
-    def _slice_outline(self, slice_axis: int, slice_position: float) -> np.ndarray:
-        """The ``(n, 2)`` outline of a rounded cuboid's slice, a rounded rectangle."""
-        from simgeometry.objects.rectangle import Rectangle
-
-        r = self.fillet
-        lower = np.asarray(xp.to_numpy(xp.asarray(self.lower_bound)), float)
-        upper = np.asarray(xp.to_numpy(xp.asarray(self.upper_bound)), float)
-        centre, half = 0.5 * (lower + upper), 0.5 * (upper - lower)
-        depth = abs(slice_position - centre[slice_axis]) - (half[slice_axis] - r)
-        radius = float(np.sqrt(max(r * r - max(depth, 0.0) ** 2, 0.0)))
-        others = [(slice_axis + 1) % 3, (slice_axis + 2) % 3]
-        sides = 2 * (half[others] - r + radius)
-        section = Rectangle(tuple(centre[others]), tuple(sides), fillet=radius)
-        return section.outlines()[0].T
-
     def contains(self, coords: Array) -> bool:
         """
         Check if the given coordinates are inside the cuboid.
@@ -190,6 +190,15 @@ class Cuboid(Shape3D):
         inside = bool(xp.all((coords >= lower_bound) & (coords <= upper_bound)))
         return (not inside) if self.inverted else inside
 
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the cuboid, rounded or not."""
+        lower = xp.asarray(self.lower_bound, dtype=float)[:, None]
+        upper = xp.asarray(self.upper_bound, dtype=float)[:, None]
+        f = self.fillet
+        return (
+            box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower) - f) - f
+        )
+
     def contains_points(self, points: Array) -> Array:
         """Vectorised :meth:`contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
@@ -200,15 +209,6 @@ class Cuboid(Shape3D):
         upper = xp.asarray(self.upper_bound, dtype=float)[:, None]
         inside = xp.all((points >= lower) & (points <= upper), axis=0)
         return ~inside if self.inverted else inside
-
-    def _level_set(self, points: Array) -> Array:
-        """Exact signed distance to the cuboid, rounded or not."""
-        lower = xp.asarray(self.lower_bound, dtype=float)[:, None]
-        upper = xp.asarray(self.upper_bound, dtype=float)[:, None]
-        f = self.fillet
-        return (
-            box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower) - f) - f
-        )
 
     def _inner_sides(self) -> np.ndarray:
         """The side lengths of the box the fillet widens by a ball."""

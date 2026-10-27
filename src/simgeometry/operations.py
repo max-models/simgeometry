@@ -21,6 +21,39 @@ def mask(shape, points):
     return np.asarray(xp.to_numpy(shape.contains_points(points)), dtype=bool)
 
 
+def _shapely():
+    try:
+        import shapely
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            "Outlines of Boolean shapes need shapely: pip install 'simgeometry[clip]'"
+        ) from exc
+    return shapely
+
+
+def _polygons(geometry):
+    """The nonempty polygons of a shapely geometry, in a deterministic order."""
+    shapely = _shapely()
+    polygons = []
+    for part in shapely.get_parts(geometry):
+        if isinstance(part, shapely.Polygon):
+            if part.area > 0:
+                polygons.append(part)
+        elif isinstance(part, (shapely.MultiPolygon, shapely.GeometryCollection)):
+            polygons.extend(_polygons(part))
+    return sorted(polygons, key=lambda p: (p.bounds[0], p.bounds[1], -p.area))
+
+
+def _shapely_ring(ring, *, counter_clockwise):
+    """A shapely ring as a ``(2, n)`` loop, without repeated vertices."""
+    coords = np.asarray(ring.coords, dtype=float)[:-1]
+    keep = np.any(coords != np.roll(coords, 1, axis=0), axis=1)
+    loop = np.ascontiguousarray(coords[keep].T)
+    if (_signed_area(loop) > 0) != counter_clockwise:
+        loop = np.ascontiguousarray(loop[:, ::-1])
+    return loop
+
+
 class BooleanShape(Shape):
     """A snapshot of a union, intersection, or difference of two shapes.
 
@@ -116,16 +149,6 @@ class BooleanShape(Shape):
         return boundary_panels(self, max_spacing)
 
 
-def _shapely():
-    try:
-        import shapely
-    except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise ImportError(
-            "Outlines of Boolean shapes need shapely: pip install 'simgeometry[clip]'"
-        ) from exc
-    return shapely
-
-
 def _shapely_geometry(shape, max_spacing):
     """A shapely geometry of a 2D shape, built from its outline loops."""
     shapely = _shapely()
@@ -164,29 +187,6 @@ def _shapely_geometry(shape, max_spacing):
     if holes:
         geometry = shapely.difference(geometry, shapely.union_all(holes))
     return shapely.make_valid(geometry)
-
-
-def _polygons(geometry):
-    """The nonempty polygons of a shapely geometry, in a deterministic order."""
-    shapely = _shapely()
-    polygons = []
-    for part in shapely.get_parts(geometry):
-        if isinstance(part, shapely.Polygon):
-            if part.area > 0:
-                polygons.append(part)
-        elif isinstance(part, (shapely.MultiPolygon, shapely.GeometryCollection)):
-            polygons.extend(_polygons(part))
-    return sorted(polygons, key=lambda p: (p.bounds[0], p.bounds[1], -p.area))
-
-
-def _shapely_ring(ring, *, counter_clockwise):
-    """A shapely ring as a ``(2, n)`` loop, without repeated vertices."""
-    coords = np.asarray(ring.coords, dtype=float)[:-1]
-    keep = np.any(coords != np.roll(coords, 1, axis=0), axis=1)
-    loop = np.ascontiguousarray(coords[keep].T)
-    if (_signed_area(loop) > 0) != counter_clockwise:
-        loop = np.ascontiguousarray(loop[:, ::-1])
-    return loop
 
 
 class TransformedShape(Shape):
@@ -351,6 +351,9 @@ class Section(Shape):
     an orthogonal projection. For oblique planes, x/y denote plane coordinates.
     """
 
+    #: A 3D distance restricted to a plane only bounds the in-plane distance.
+    level_set_exact = False
+
     def __init__(self, source, *, x=None, y=None, z=None, origin=None, normal=None):
         if source.ndim < 2:
             raise ValueError("Cannot slice one-dimensional geometry")
@@ -427,9 +430,6 @@ class Section(Shape):
     def contains(self, coords):
         return self.source.contains(self._to_parent(np.atleast_1d(coords)))
 
-    #: A 3D distance restricted to a plane only bounds the in-plane distance.
-    level_set_exact = False
-
     @property
     def has_level_set(self):
         """Whether the sliced source has a level set."""
@@ -456,23 +456,6 @@ class Section(Shape):
     def names(self):
         return getattr(self.source, "names", ("inside",))
 
-    def outlines(self, max_spacing=None, *, resolution=128, bounds=None, world=False):
-        """The sampled boundary loops of a plane section, as ``(2, n)`` host arrays.
-
-        Loops follow ``Shape2D.outlines``: no repeated first vertex, and the region on
-        their left, so outer boundaries are counter-clockwise and holes clockwise (a
-        hollow sphere gives one of each). They come from contouring the section on
-        ``resolution`` samples per axis across ``bounds`` (default: the section's
-        bounds, padded by 5%), on the level set where the source has one, so vertices
-        lie on the boundary up to the sampling accuracy. A loop cut by ``bounds`` stays
-        open. ``max_spacing`` (a length, or a function of ``(2, m)`` plane points)
-        splits longer edges evenly, as for Boolean outlines. ``world=True`` maps the
-        loops onto the plane in 3D, as ``(3, n)`` arrays. Requires the ``mesh`` extra;
-        sections of 2D shapes (lines) have no outlines.
-        """
-        loops = self._sampled_loops(max_spacing, resolution, bounds)
-        return [self.to_world(loop) if world else loop for loop, _ in loops]
-
     def _sampled_loops(self, max_spacing, resolution, bounds):
         """``(loop, closed)`` pairs of :meth:`outlines`, in plane coordinates."""
         from simgeometry.mesh import _find_contours
@@ -498,6 +481,23 @@ class Section(Shape):
                 loop = _refine_loop(loop, max_spacing, closed=closed)
             loops.append((loop, closed))
         return loops
+
+    def outlines(self, max_spacing=None, *, resolution=128, bounds=None, world=False):
+        """The sampled boundary loops of a plane section, as ``(2, n)`` host arrays.
+
+        Loops follow ``Shape2D.outlines``: no repeated first vertex, and the region on
+        their left, so outer boundaries are counter-clockwise and holes clockwise (a
+        hollow sphere gives one of each). They come from contouring the section on
+        ``resolution`` samples per axis across ``bounds`` (default: the section's
+        bounds, padded by 5%), on the level set where the source has one, so vertices
+        lie on the boundary up to the sampling accuracy. A loop cut by ``bounds`` stays
+        open. ``max_spacing`` (a length, or a function of ``(2, m)`` plane points)
+        splits longer edges evenly, as for Boolean outlines. ``world=True`` maps the
+        loops onto the plane in 3D, as ``(3, n)`` arrays. Requires the ``mesh`` extra;
+        sections of 2D shapes (lines) have no outlines.
+        """
+        loops = self._sampled_loops(max_spacing, resolution, bounds)
+        return [self.to_world(loop) if world else loop for loop, _ in loops]
 
     def show_3d(self, **kwargs):
         """The section in 3D: its source, the cutting plane and the section outline.

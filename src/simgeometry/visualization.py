@@ -23,147 +23,6 @@ def _finish(ax, display, save):
     return ax
 
 
-def show(
-    shape,
-    *,
-    x=None,
-    y=None,
-    z=None,
-    ax=None,
-    resolution=None,
-    bounds=None,
-    grid=None,
-    nodes=False,
-    labels=True,
-    normals=False,
-    show_bounds=False,
-    color=None,
-    color_by="name",
-    opacity=0.65,
-    display=True,
-    save=None,
-    **kwargs,
-):
-    """Plot occupancy or a slice; dimensions and coordinates are labelled."""
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import ListedColormap
-    from matplotlib.patches import Patch
-
-    selectors = {k: v for k, v in zip("xyz", (x, y, z)) if v is not None}
-    if resolution is None:
-        resolution = 48 if shape.ndim == 3 and not selectors else 128
-    if shape.ndim == 3 and not selectors:
-        return show_3d(
-            shape,
-            ax=ax,
-            resolution=resolution,
-            bounds=bounds,
-            grid=grid,
-            nodes=nodes,
-            labels=labels,
-            normals=normals,
-            show_bounds=show_bounds,
-            color=color,
-            color_by=color_by,
-            opacity=opacity,
-            display=display,
-            save=save,
-            **kwargs,
-        )
-    if color_by not in (None, "name"):
-        raise ValueError("color_by must be 'name' or None")
-    if grid is True:
-        raise ValueError("Pass a Grid object, or use domain.show(grid=True)")
-    if grid is not None and grid.ndim != shape.ndim:
-        raise ValueError("Grid and geometry dimensions must match")
-    grid_axes = list(grid.get_grid_points()) if grid is not None else None
-    if selectors:
-        if len(selectors) != 1:
-            raise ValueError("Select one coordinate for a geometry slice")
-        source_names = getattr(shape, "axis_names", tuple("xyz"[: shape.ndim]))
-        name = next(iter(selectors))
-        if name not in source_names:
-            raise ValueError(f"Available slice axes are {source_names}")
-        axis = source_names.index(name)
-        shape = shape.slice(**selectors)
-        if grid_axes is not None:
-            grid_axes.pop(axis)
-        if bounds is not None:
-            bounds = tuple(np.delete(v, axis) for v in bounds)
-    names = getattr(shape, "axis_names", tuple("xyz"[: shape.ndim]))
-    coordinates = dict(zip(names, grid_axes)) if grid_axes is not None else {}
-    quantity = "labels" if hasattr(shape, "labels") else "occupancy"
-    values = shape.evaluate(
-        **coordinates, resolution=resolution, bounds=bounds, quantity=quantity
-    )
-    ax = ax or plt.subplots()[1]
-    if shape.ndim == 1:
-        ax.step(
-            values.coords[names[0]], values.values, where="mid", color=color, **kwargs
-        )
-        ax.set_ylabel(quantity)
-    else:
-        xs, ys = (values.coords[n].values for n in names)
-        object_names = getattr(shape, "names", ("geometry",))
-        styles = getattr(
-            shape, "styles", getattr(getattr(shape, "source", None), "styles", {})
-        )
-        colors = [
-            styles.get(name, {}).get(
-                "color",
-                styles.get(name, {}).get(
-                    "facecolor", color or (f"C{i % 10}" if color_by == "name" else "C0")
-                ),
-            )
-            for i, name in enumerate(object_names)
-        ]
-        cmap = ListedColormap(colors or [color or "C0"])
-        data = np.ma.masked_where(values.values == 0, values.values.astype(float) - 1)
-        style = {
-            "cmap": cmap,
-            "vmin": -0.5,
-            "vmax": max(len(colors) - 0.5, 0.5),
-            "alpha": opacity,
-            **kwargs,
-        }
-        ax.pcolormesh(xs, ys, data.T, shading="nearest", **style)
-        if labels and len(object_names):
-            ax.legend(
-                handles=[Patch(color=c, label=n) for n, c in zip(object_names, colors)]
-            )
-        if grid_axes is not None:
-            for value in xs:
-                ax.axvline(value, color="gray", linewidth=0.4, alpha=0.5)
-            for value in ys:
-                ax.axhline(value, color="gray", linewidth=0.4, alpha=0.5)
-        if nodes:
-            xx, yy = np.meshgrid(xs, ys, indexing="ij")
-            ax.scatter(
-                xx.ravel(),
-                yy.ravel(),
-                c=(values.values != 0).ravel(),
-                cmap="coolwarm",
-                s=5,
-            )
-        if normals:
-            mesh = shape.to_mesh(resolution=resolution, bounds=bounds)
-            stride = max(1, len(mesh.cells) // 48)
-            ax.quiver(*mesh.centres[::stride].T, *mesh.normals[::stride].T, angles="xy")
-        if show_bounds:
-            lower, upper = bounds or (shape.lower_bound, shape.upper_bound)
-            ax.plot(
-                [lower[0], upper[0], upper[0], lower[0], lower[0]],
-                [lower[1], lower[1], upper[1], upper[1], lower[1]],
-                color="black",
-            )
-        ax.set_aspect("equal")
-        ax.set_ylabel(names[1])
-    ax.set_xlabel(names[0])
-    if selectors:
-        ax.set_title(", ".join(f"{k} = {v:g}" for k, v in selectors.items()))
-    return _finish(ax, display, save)
-
-
 def _clip_triangles(vertices, faces, origin, normal):
     """Clip each triangle against a half-space, without adding artificial caps."""
     origin, normal = np.asarray(origin, float), np.asarray(normal, float)
@@ -260,6 +119,19 @@ def _point_sets(points, first_color):
             "size": entry.get("size"),
         }
     return sets, named
+
+
+def _grid_lines_3d(grid):
+    axes = grid.get_grid_points()
+    segments = []
+    for axis in range(3):
+        other = [i for i in range(3) if i != axis]
+        for values in product(*(axes[i] for i in other)):
+            a, b = np.zeros(3), np.zeros(3)
+            a[other], b[other] = values, values
+            a[axis], b[axis] = grid.lower_bound[axis], grid.upper_bound[axis]
+            segments.append([a, b])
+    return np.asarray(segments)
 
 
 def show_3d(
@@ -527,17 +399,145 @@ def show_3d(
     return _finish(ax, display, save)
 
 
-def _grid_lines_3d(grid):
-    axes = grid.get_grid_points()
-    segments = []
-    for axis in range(3):
-        other = [i for i in range(3) if i != axis]
-        for values in product(*(axes[i] for i in other)):
-            a, b = np.zeros(3), np.zeros(3)
-            a[other], b[other] = values, values
-            a[axis], b[axis] = grid.lower_bound[axis], grid.upper_bound[axis]
-            segments.append([a, b])
-    return np.asarray(segments)
+def show(
+    shape,
+    *,
+    x=None,
+    y=None,
+    z=None,
+    ax=None,
+    resolution=None,
+    bounds=None,
+    grid=None,
+    nodes=False,
+    labels=True,
+    normals=False,
+    show_bounds=False,
+    color=None,
+    color_by="name",
+    opacity=0.65,
+    display=True,
+    save=None,
+    **kwargs,
+):
+    """Plot occupancy or a slice; dimensions and coordinates are labelled."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+    from matplotlib.patches import Patch
+
+    selectors = {k: v for k, v in zip("xyz", (x, y, z)) if v is not None}
+    if resolution is None:
+        resolution = 48 if shape.ndim == 3 and not selectors else 128
+    if shape.ndim == 3 and not selectors:
+        return show_3d(
+            shape,
+            ax=ax,
+            resolution=resolution,
+            bounds=bounds,
+            grid=grid,
+            nodes=nodes,
+            labels=labels,
+            normals=normals,
+            show_bounds=show_bounds,
+            color=color,
+            color_by=color_by,
+            opacity=opacity,
+            display=display,
+            save=save,
+            **kwargs,
+        )
+    if color_by not in (None, "name"):
+        raise ValueError("color_by must be 'name' or None")
+    if grid is True:
+        raise ValueError("Pass a Grid object, or use domain.show(grid=True)")
+    if grid is not None and grid.ndim != shape.ndim:
+        raise ValueError("Grid and geometry dimensions must match")
+    grid_axes = list(grid.get_grid_points()) if grid is not None else None
+    if selectors:
+        if len(selectors) != 1:
+            raise ValueError("Select one coordinate for a geometry slice")
+        source_names = getattr(shape, "axis_names", tuple("xyz"[: shape.ndim]))
+        name = next(iter(selectors))
+        if name not in source_names:
+            raise ValueError(f"Available slice axes are {source_names}")
+        axis = source_names.index(name)
+        shape = shape.slice(**selectors)
+        if grid_axes is not None:
+            grid_axes.pop(axis)
+        if bounds is not None:
+            bounds = tuple(np.delete(v, axis) for v in bounds)
+    names = getattr(shape, "axis_names", tuple("xyz"[: shape.ndim]))
+    coordinates = dict(zip(names, grid_axes)) if grid_axes is not None else {}
+    quantity = "labels" if hasattr(shape, "labels") else "occupancy"
+    values = shape.evaluate(
+        **coordinates, resolution=resolution, bounds=bounds, quantity=quantity
+    )
+    ax = ax or plt.subplots()[1]
+    if shape.ndim == 1:
+        ax.step(
+            values.coords[names[0]], values.values, where="mid", color=color, **kwargs
+        )
+        ax.set_ylabel(quantity)
+    else:
+        xs, ys = (values.coords[n].values for n in names)
+        object_names = getattr(shape, "names", ("geometry",))
+        styles = getattr(
+            shape, "styles", getattr(getattr(shape, "source", None), "styles", {})
+        )
+        colors = [
+            styles.get(name, {}).get(
+                "color",
+                styles.get(name, {}).get(
+                    "facecolor", color or (f"C{i % 10}" if color_by == "name" else "C0")
+                ),
+            )
+            for i, name in enumerate(object_names)
+        ]
+        cmap = ListedColormap(colors or [color or "C0"])
+        data = np.ma.masked_where(values.values == 0, values.values.astype(float) - 1)
+        style = {
+            "cmap": cmap,
+            "vmin": -0.5,
+            "vmax": max(len(colors) - 0.5, 0.5),
+            "alpha": opacity,
+            **kwargs,
+        }
+        ax.pcolormesh(xs, ys, data.T, shading="nearest", **style)
+        if labels and len(object_names):
+            ax.legend(
+                handles=[Patch(color=c, label=n) for n, c in zip(object_names, colors)]
+            )
+        if grid_axes is not None:
+            for value in xs:
+                ax.axvline(value, color="gray", linewidth=0.4, alpha=0.5)
+            for value in ys:
+                ax.axhline(value, color="gray", linewidth=0.4, alpha=0.5)
+        if nodes:
+            xx, yy = np.meshgrid(xs, ys, indexing="ij")
+            ax.scatter(
+                xx.ravel(),
+                yy.ravel(),
+                c=(values.values != 0).ravel(),
+                cmap="coolwarm",
+                s=5,
+            )
+        if normals:
+            mesh = shape.to_mesh(resolution=resolution, bounds=bounds)
+            stride = max(1, len(mesh.cells) // 48)
+            ax.quiver(*mesh.centres[::stride].T, *mesh.normals[::stride].T, angles="xy")
+        if show_bounds:
+            lower, upper = bounds or (shape.lower_bound, shape.upper_bound)
+            ax.plot(
+                [lower[0], upper[0], upper[0], lower[0], lower[0]],
+                [lower[1], lower[1], upper[1], upper[1], lower[1]],
+                color="black",
+            )
+        ax.set_aspect("equal")
+        ax.set_ylabel(names[1])
+    ax.set_xlabel(names[0])
+    if selectors:
+        ax.set_title(", ".join(f"{k} = {v:g}" for k, v in selectors.items()))
+    return _finish(ax, display, save)
 
 
 def show_section_3d(

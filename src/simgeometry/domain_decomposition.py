@@ -232,6 +232,62 @@ class DomainDecomposition:
                     active_decomposition[j] = False
                     break
 
+    def _setup(
+        self,
+        comm: MPI.Comm | None,
+        size: int,
+        rank: int,
+        decompose: list[bool] | None,
+        periodic: tuple[bool, ...] | None,
+        ndim: int | None,
+        proc_sizes: list[int] | None = None,
+    ) -> None:
+        """Build the process grid of ``size`` ranks, as seen from ``rank``."""
+        self._comm = comm
+        self._mpi_size = size
+        self._mpi_rank = rank
+
+        assert ndim is not None or decompose is not None, (
+            "DomainDecomposition must take either ndim or decompose!"
+        )
+
+        if ndim is None:
+            ndim = len(decompose)
+        self._ndim = ndim
+
+        if decompose is None:
+            self._decompose = [True] * self.ndim
+        else:
+            self._decompose = list(decompose)
+        assert len(self.decompose) == self.ndim
+
+        if periodic is None:
+            periodic = [False] * self.ndim
+        self._periodic = tuple(periodic)
+        assert len(self.periodic) == self.ndim
+
+        if proc_sizes is None:
+            self._proc_sizes = self._calculate_proc_sizes()
+        else:
+            self._proc_sizes = list(proc_sizes)
+
+        # With no decomposed axis the process grid has a single slot and every
+        # rank holds the whole domain; all ranks then share process coordinate 0.
+        self._replicated = self.mpi_size > 1 and math.prod(self.proc_sizes) == 1
+
+        # Ranks are placed row-major on the process grid, as mpiarray does.
+        if self.replicated:
+            self._neighbour_ranks = [
+                (
+                    (self.mpi_rank, self.mpi_rank)
+                    if is_periodic
+                    else (MPI.PROC_NULL, MPI.PROC_NULL)
+                )
+                for is_periodic in self.periodic
+            ]
+        else:
+            self._neighbour_ranks = self._calculate_neighbor_ranks()
+
     def __init__(
         self,
         comm: MPI.Comm | None,
@@ -323,62 +379,6 @@ class DomainDecomposition:
             proc_sizes,
         )
         return decomposition
-
-    def _setup(
-        self,
-        comm: MPI.Comm | None,
-        size: int,
-        rank: int,
-        decompose: list[bool] | None,
-        periodic: tuple[bool, ...] | None,
-        ndim: int | None,
-        proc_sizes: list[int] | None = None,
-    ) -> None:
-        """Build the process grid of ``size`` ranks, as seen from ``rank``."""
-        self._comm = comm
-        self._mpi_size = size
-        self._mpi_rank = rank
-
-        assert ndim is not None or decompose is not None, (
-            "DomainDecomposition must take either ndim or decompose!"
-        )
-
-        if ndim is None:
-            ndim = len(decompose)
-        self._ndim = ndim
-
-        if decompose is None:
-            self._decompose = [True] * self.ndim
-        else:
-            self._decompose = list(decompose)
-        assert len(self.decompose) == self.ndim
-
-        if periodic is None:
-            periodic = [False] * self.ndim
-        self._periodic = tuple(periodic)
-        assert len(self.periodic) == self.ndim
-
-        if proc_sizes is None:
-            self._proc_sizes = self._calculate_proc_sizes()
-        else:
-            self._proc_sizes = list(proc_sizes)
-
-        # With no decomposed axis the process grid has a single slot and every
-        # rank holds the whole domain; all ranks then share process coordinate 0.
-        self._replicated = self.mpi_size > 1 and math.prod(self.proc_sizes) == 1
-
-        # Ranks are placed row-major on the process grid, as mpiarray does.
-        if self.replicated:
-            self._neighbour_ranks = [
-                (
-                    (self.mpi_rank, self.mpi_rank)
-                    if is_periodic
-                    else (MPI.PROC_NULL, MPI.PROC_NULL)
-                )
-                for is_periodic in self.periodic
-            ]
-        else:
-            self._neighbour_ranks = self._calculate_neighbor_ranks()
 
     def layout(
         self,
@@ -516,6 +516,18 @@ class DomainDecomposition:
             upper.append(edges[proc_coord[dim] + 1])
         return tuple(lower), tuple(upper)
 
+    def _check_grid(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+    ) -> None:
+        """Raise if the grid description does not have ``ndim`` entries."""
+        if len(lower_bound) != self.ndim or len(upper_bound) != self.ndim:
+            raise ValueError("Bounds must match decomposition dimensions")
+        if len(num_gridpoints) != self.ndim:
+            raise ValueError("num_gridpoints must match decomposition dimensions")
+
     def subdomain_boxes(
         self,
         lower_bound: Sequence[float],
@@ -609,18 +621,6 @@ class DomainDecomposition:
             display=display,
             save=save,
         )
-
-    def _check_grid(
-        self,
-        lower_bound: Sequence[float],
-        upper_bound: Sequence[float],
-        num_gridpoints: Sequence[int],
-    ) -> None:
-        """Raise if the grid description does not have ``ndim`` entries."""
-        if len(lower_bound) != self.ndim or len(upper_bound) != self.ndim:
-            raise ValueError("Bounds must match decomposition dimensions")
-        if len(num_gridpoints) != self.ndim:
-            raise ValueError("num_gridpoints must match decomposition dimensions")
 
     def _components(self, positions: Any, layout: Layout) -> Any:
         """Return ``positions`` as a float ``(ndim, n)`` array on the active backend."""

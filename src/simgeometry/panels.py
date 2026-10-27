@@ -27,9 +27,6 @@ class Panels:
     piece: np.ndarray
     closed: bool = True
 
-    def __len__(self) -> int:
-        return int(self.start.shape[1])
-
     @property
     def midpoint(self) -> np.ndarray:
         """Panel midpoints, ``(2, n)``."""
@@ -50,6 +47,9 @@ class Panels:
         """Unit normals to the right of the tangents, ``(2, n)``."""
         tx, ty = self.tangent
         return np.stack((ty, -tx))
+
+    def __len__(self) -> int:
+        return int(self.start.shape[1])
 
 
 def boundary_panels(shape, max_spacing=None) -> Panels:

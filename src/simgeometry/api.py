@@ -137,15 +137,6 @@ class GeometryAPI:
 
         return BooleanShape(self, other, "difference")
 
-    def __or__(self, other):
-        return self.union(other)
-
-    def __and__(self, other):
-        return self.intersection(other)
-
-    def __sub__(self, other):
-        return self.difference(other)
-
     def intersect_segment(self, start, end, *, samples=256, tolerance=1e-10):
         """Return ordered surface hits, including multiple crossings and tangencies.
 
@@ -268,3 +259,12 @@ class GeometryAPI:
         from simgeometry.fractions import yee_fractions
 
         return yee_fractions(self, grid, **kwargs)
+
+    def __sub__(self, other):
+        return self.difference(other)
+
+    def __and__(self, other):
+        return self.intersection(other)
+
+    def __or__(self, other):
+        return self.union(other)

@@ -27,6 +27,16 @@ class Aperture2D(Shape2D):
     exact_outline = True
     has_level_set = True
 
+    def _plate_vertices(self) -> tuple[ndarray, ndarray]:
+        """The ``(n, 2)`` vertices of the plate below and the plate above the centre line."""
+        profile = np.asarray(self.vertices, dtype=float)
+        axial, radial = profile[:, 0], profile[:, 1]
+        plates = []
+        for across in (self.position - radial, self.position + radial):
+            points = (axial, across) if self.axis == 0 else (across, axial)
+            plates.append(np.stack(points, axis=1))
+        return plates[0], plates[1]
+
     def __init__(
         self,
         axis: int,
@@ -117,16 +127,6 @@ class Aperture2D(Shape2D):
         """Set the beam axis."""
         assert value in [0, 1], "Axis must be one of 0 or 1."
         self._axis = value
-
-    def _plate_vertices(self) -> tuple[ndarray, ndarray]:
-        """The ``(n, 2)`` vertices of the plate below and the plate above the centre line."""
-        profile = np.asarray(self.vertices, dtype=float)
-        axial, radial = profile[:, 0], profile[:, 1]
-        plates = []
-        for across in (self.position - radial, self.position + radial):
-            points = (axial, across) if self.axis == 0 else (across, axial)
-            plates.append(np.stack(points, axis=1))
-        return plates[0], plates[1]
 
     def _corner_loops(self) -> list[np.ndarray]:
         """One loop per plate: the lower plate, then the upper one."""

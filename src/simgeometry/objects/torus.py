@@ -22,6 +22,13 @@ class Torus(AxisymmetricShape):
         ring = Torus((0, 0, 0), 3.0, 1.0)
     """
 
+    def _bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """The centre circle's box, widened by the tube radius."""
+        extent = self._disc_extent(self.major_radius) + self.minor_radius
+        lower = self._midpoint - extent
+        upper = self._midpoint + extent
+        return tuple(float(v) for v in lower), tuple(float(v) for v in upper)
+
     def __init__(
         self,
         midpoint: BoundsLike,
@@ -50,13 +57,6 @@ class Torus(AxisymmetricShape):
         self._bc = bc
         self._inverted = bool(inverted)
         super().__init__(*self._bounds())
-
-    def _bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """The centre circle's box, widened by the tube radius."""
-        extent = self._disc_extent(self.major_radius) + self.minor_radius
-        lower = self._midpoint - extent
-        upper = self._midpoint + extent
-        return tuple(float(v) for v in lower), tuple(float(v) for v in upper)
 
     def copy(self) -> Torus:
         """Create a copy of the torus."""

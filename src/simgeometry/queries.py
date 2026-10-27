@@ -275,6 +275,119 @@ def _candidates(shape, a, b, samples, tolerance):
     return hits, False
 
 
+def _closest_segments(p, segments):
+    a, b = segments[:, 0], segments[:, 1]
+    d = b - a
+    denominator = np.sum(d * d, axis=1)
+    t = np.sum((p - a) * d, axis=1) / np.where(denominator > 0, denominator, 1)
+    return a + np.clip(t, 0, 1)[:, None] * d
+
+
+def estimate_surface_normal(obj, point, scale, *, require_boundary=True):
+    """Solid-outward unit normal estimated by directional membership samples.
+
+    Set require_boundary=False to retain the original Picnic estimator at
+    periodic image points, including its cancellation behavior away from a surface.
+    """
+    point = np.asarray(point, float)
+    ndim = point.size
+    if ndim == 1:
+        directions = np.asarray([[-1.0], [1.0]])
+    elif ndim == 2:
+        theta = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+        directions = np.column_stack((np.cos(theta), np.sin(theta)))
+    else:
+        indices = np.arange(128, dtype=float) + 0.5
+        z = 1 - 2 * indices / 128
+        theta = np.pi * (1 + np.sqrt(5)) * indices
+        radial = np.sqrt(1 - z * z)
+        directions = np.column_stack(
+            (radial * np.cos(theta), radial * np.sin(theta), z)
+        )
+    epsilon = max(scale * 1e-5, np.finfo(float).eps * 128)
+    hits = mask(obj, point[:, None] + epsilon * directions.T)
+    normal = np.sum(np.where(hits[:, None], -directions, directions), axis=0)
+    magnitude = np.linalg.norm(normal)
+    if magnitude == 0 or (require_boundary and (hits.all() or not hits.any())):
+        return np.full(ndim, np.nan)
+    return normal / magnitude
+
+
+def surface_normal(shape, points, *, scale=None):
+    p, single = points_array(points, shape.ndim)
+    if isinstance(shape, TransformedShape):
+        n = shape.inverse.T @ surface_normal(
+            shape.source, shape.inverse @ (p - shape.offset[:, None]), scale=scale
+        )
+    elif isinstance(shape, BALLS):
+        n = p - np.asarray(shape.midpoint)[:, None]
+        if shape.inverted:
+            n = -n
+    elif _is_rounded(shape):
+        n = rounded_box_normal(p, *_centre_half(shape), shape.fillet)
+        if shape.inverted:
+            n = -n
+    elif _is_box(shape):
+        distances = np.concatenate(
+            (
+                abs(p - np.asarray(shape.lower_bound)[:, None]),
+                abs(p - np.asarray(shape.upper_bound)[:, None]),
+            ),
+            axis=0,
+        )
+        face = np.argmin(distances, axis=0)
+        n = np.zeros_like(p)
+        n[face % shape.ndim, np.arange(p.shape[1])] = np.where(face < shape.ndim, -1, 1)
+        if shape.inverted:
+            n = -n
+    elif isinstance(shape, POLYGONS):
+        vertices = _polygon_vertices(shape)
+        segments = np.stack((vertices, np.roll(vertices, -1, axis=0)), axis=1)
+        edges = segments[:, 1] - segments[:, 0]
+        signed_area = np.sum(
+            vertices[:, 0] * np.roll(vertices[:, 1], -1)
+            - vertices[:, 1] * np.roll(vertices[:, 0], -1)
+        )
+        if signed_area == 0:
+            n = np.full_like(p, np.nan)
+        else:
+            outward = np.column_stack((edges[:, 1], -edges[:, 0])) * np.sign(
+                signed_area
+            )
+            n = np.empty_like(p)
+            for i, point in enumerate(p.T):
+                closest = _closest_segments(point, segments)
+                edge = np.argmin(np.sum((closest - point) ** 2, axis=1))
+                n[:, i] = outward[edge]
+            if shape.inverted:
+                n = -n
+    elif has_level_set(shape):
+        # the gradient of the level set points out of the region where it is negative
+        extent = float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
+        scale = extent if scale is None else float(scale)
+        if not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Normal sampling scale must be positive and finite")
+        n = level_set_gradient(shape, p, 1e-7 * scale)
+    else:
+        scale = (
+            float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
+            if scale is None
+            else float(scale)
+        )
+        if not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Normal sampling scale must be positive and finite")
+        n = (
+            np.column_stack(
+                [estimate_surface_normal(shape, point, scale) for point in p.T]
+            )
+            if p.shape[1]
+            else np.empty_like(p)
+        )
+    length = np.linalg.norm(n, axis=0)
+    n = n / np.where(length > 0, length, np.nan)
+    return n[:, 0] if single else n
+
+
 def intersect_segment(shape, start, end, *, samples=256, tolerance=1e-10):
     a, b = np.asarray(start, float), np.asarray(end, float)
     if (
@@ -330,14 +443,6 @@ def intersect_segment(shape, start, end, *, samples=256, tolerance=1e-10):
         (None,) * len(ts),
         exact,
     )
-
-
-def _closest_segments(p, segments):
-    a, b = segments[:, 0], segments[:, 1]
-    d = b - a
-    denominator = np.sum(d * d, axis=1)
-    t = np.sum((p - a) * d, axis=1) / np.where(denominator > 0, denominator, 1)
-    return a + np.clip(t, 0, 1)[:, None] * d
 
 
 def closest_on_mesh(points, vertices, cells):
@@ -453,108 +558,3 @@ def signed_distance(shape, points, *, resolution=64, bounds=None):
     distance = np.linalg.norm(p - q, axis=0)
     distance = np.where(mask(shape, p), -distance, distance)
     return float(distance[0]) if single else distance
-
-
-def estimate_surface_normal(obj, point, scale, *, require_boundary=True):
-    """Solid-outward unit normal estimated by directional membership samples.
-
-    Set require_boundary=False to retain the original Picnic estimator at
-    periodic image points, including its cancellation behavior away from a surface.
-    """
-    point = np.asarray(point, float)
-    ndim = point.size
-    if ndim == 1:
-        directions = np.asarray([[-1.0], [1.0]])
-    elif ndim == 2:
-        theta = np.linspace(0, 2 * np.pi, 64, endpoint=False)
-        directions = np.column_stack((np.cos(theta), np.sin(theta)))
-    else:
-        indices = np.arange(128, dtype=float) + 0.5
-        z = 1 - 2 * indices / 128
-        theta = np.pi * (1 + np.sqrt(5)) * indices
-        radial = np.sqrt(1 - z * z)
-        directions = np.column_stack(
-            (radial * np.cos(theta), radial * np.sin(theta), z)
-        )
-    epsilon = max(scale * 1e-5, np.finfo(float).eps * 128)
-    hits = mask(obj, point[:, None] + epsilon * directions.T)
-    normal = np.sum(np.where(hits[:, None], -directions, directions), axis=0)
-    magnitude = np.linalg.norm(normal)
-    if magnitude == 0 or (require_boundary and (hits.all() or not hits.any())):
-        return np.full(ndim, np.nan)
-    return normal / magnitude
-
-
-def surface_normal(shape, points, *, scale=None):
-    p, single = points_array(points, shape.ndim)
-    if isinstance(shape, TransformedShape):
-        n = shape.inverse.T @ surface_normal(
-            shape.source, shape.inverse @ (p - shape.offset[:, None]), scale=scale
-        )
-    elif isinstance(shape, BALLS):
-        n = p - np.asarray(shape.midpoint)[:, None]
-        if shape.inverted:
-            n = -n
-    elif _is_rounded(shape):
-        n = rounded_box_normal(p, *_centre_half(shape), shape.fillet)
-        if shape.inverted:
-            n = -n
-    elif _is_box(shape):
-        distances = np.concatenate(
-            (
-                abs(p - np.asarray(shape.lower_bound)[:, None]),
-                abs(p - np.asarray(shape.upper_bound)[:, None]),
-            ),
-            axis=0,
-        )
-        face = np.argmin(distances, axis=0)
-        n = np.zeros_like(p)
-        n[face % shape.ndim, np.arange(p.shape[1])] = np.where(face < shape.ndim, -1, 1)
-        if shape.inverted:
-            n = -n
-    elif isinstance(shape, POLYGONS):
-        vertices = _polygon_vertices(shape)
-        segments = np.stack((vertices, np.roll(vertices, -1, axis=0)), axis=1)
-        edges = segments[:, 1] - segments[:, 0]
-        signed_area = np.sum(
-            vertices[:, 0] * np.roll(vertices[:, 1], -1)
-            - vertices[:, 1] * np.roll(vertices[:, 0], -1)
-        )
-        if signed_area == 0:
-            n = np.full_like(p, np.nan)
-        else:
-            outward = np.column_stack((edges[:, 1], -edges[:, 0])) * np.sign(
-                signed_area
-            )
-            n = np.empty_like(p)
-            for i, point in enumerate(p.T):
-                closest = _closest_segments(point, segments)
-                edge = np.argmin(np.sum((closest - point) ** 2, axis=1))
-                n[:, i] = outward[edge]
-            if shape.inverted:
-                n = -n
-    elif has_level_set(shape):
-        # the gradient of the level set points out of the region where it is negative
-        extent = float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
-        scale = extent if scale is None else float(scale)
-        if not np.isfinite(scale) or scale <= 0:
-            raise ValueError("Normal sampling scale must be positive and finite")
-        n = level_set_gradient(shape, p, 1e-7 * scale)
-    else:
-        scale = (
-            float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
-            if scale is None
-            else float(scale)
-        )
-        if not np.isfinite(scale) or scale <= 0:
-            raise ValueError("Normal sampling scale must be positive and finite")
-        n = (
-            np.column_stack(
-                [estimate_surface_normal(shape, point, scale) for point in p.T]
-            )
-            if p.shape[1]
-            else np.empty_like(p)
-        )
-    length = np.linalg.norm(n, axis=0)
-    n = n / np.where(length > 0, length, np.nan)
-    return n[:, 0] if single else n
