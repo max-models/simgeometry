@@ -13,87 +13,6 @@ from simgeometry.operations import mask
 from simgeometry.queries import intersection_fractions
 
 
-@dataclass(frozen=True)
-class BracketedEdgeGeometry:
-    """Single crossings from fluid nodes to solid neighbours.
-
-    ``fractions[(axis, side)]`` is a grid-shaped array (NaN for uncut edges),
-    with side 0 lower and 1 upper. Fractions are *not* clamped. This fast path
-    assumes one crossing on every outside-to-inside bracket. Use ``cut_edges``
-    to inspect multiple hits or objects smaller than a grid cell.
-
-    ``points`` and ``normals`` are the crossings in world coordinates, (ndim, n),
-    in the order of ``fractions``: key by key, each as ``f[np.isfinite(f)]``.
-    """
-
-    solid: np.ndarray
-    owners: np.ndarray
-    fractions: dict
-    cut: np.ndarray
-    nodes: np.ndarray
-    spacing: tuple
-    periodic: tuple
-    objects: tuple
-
-    @cached_property
-    def _crossings(self):
-        ndim = self.nodes.shape[0]
-        lower = self.nodes.reshape(ndim, -1)[:, 0]
-        periods = np.asarray(self.solid.shape) * np.asarray(self.spacing)
-        points, owners = [np.empty((ndim, 0))], [np.empty(0, dtype=int)]
-        for (axis, side), fraction in self.fractions.items():
-            cut = np.isfinite(fraction)
-            offset = 1 if side else -1
-            point = self.nodes[:, cut]
-            point[axis] += offset * self.spacing[axis] * fraction[cut]
-            points.append(point)
-            owners.append(np.roll(self.owners, -offset, axis=axis)[cut])
-        points = _wrap(np.concatenate(points, axis=1), lower, periods, self.periodic)
-        return points, np.concatenate(owners)
-
-    @property
-    def points(self):
-        """Crossing points in world coordinates, (ndim, n); periodic images wrapped."""
-        return self._crossings[0]
-
-    @property
-    def crossing_owners(self):
-        """Index into ``objects`` of the object each crossing enters, (n,)."""
-        return self._crossings[1]
-
-    @cached_property
-    def normals(self):
-        """Outward unit normals of the entered object at ``points``, (ndim, n)."""
-        points, owners = self._crossings
-        normals = np.full_like(points, np.nan)
-        for number, obj in enumerate(self.objects):
-            mine = owners == number
-            if mine.any():
-                normals[:, mine] = obj.surface_normal(points[:, mine])
-        return normals
-
-    def show_3d(self, **kwargs):
-        """Draw the objects, the crossings and optionally normals and solid nodes.
-
-        Takes the keyword arguments of :meth:`CutEdges.show_3d`; several objects
-        are drawn as one collection.
-        """
-        from simgeometry.collection import GeometryCollection
-
-        if len(self.objects) == 1:
-            shape = self.objects[0]
-        else:
-            shape = GeometryCollection(list(self.objects))
-        return _show_crossings_3d(
-            shape,
-            self.points,
-            self.normals if kwargs.get("normals") else None,
-            self.nodes[:, self.solid],
-            self.spacing,
-            **kwargs,
-        )
-
-
 def _wrap(points, lower, periods, periodic):
     """Map points across periodic faces into the domain."""
     points = points.copy()
@@ -205,6 +124,87 @@ def _show_crossings_3d(
             color="tab:red",
         )
     return _finish(ax, display, save)
+
+
+@dataclass(frozen=True)
+class BracketedEdgeGeometry:
+    """Single crossings from fluid nodes to solid neighbours.
+
+    ``fractions[(axis, side)]`` is a grid-shaped array (NaN for uncut edges),
+    with side 0 lower and 1 upper. Fractions are *not* clamped. This fast path
+    assumes one crossing on every outside-to-inside bracket. Use ``cut_edges``
+    to inspect multiple hits or objects smaller than a grid cell.
+
+    ``points`` and ``normals`` are the crossings in world coordinates, (ndim, n),
+    in the order of ``fractions``: key by key, each as ``f[np.isfinite(f)]``.
+    """
+
+    solid: np.ndarray
+    owners: np.ndarray
+    fractions: dict
+    cut: np.ndarray
+    nodes: np.ndarray
+    spacing: tuple
+    periodic: tuple
+    objects: tuple
+
+    @cached_property
+    def _crossings(self):
+        ndim = self.nodes.shape[0]
+        lower = self.nodes.reshape(ndim, -1)[:, 0]
+        periods = np.asarray(self.solid.shape) * np.asarray(self.spacing)
+        points, owners = [np.empty((ndim, 0))], [np.empty(0, dtype=int)]
+        for (axis, side), fraction in self.fractions.items():
+            cut = np.isfinite(fraction)
+            offset = 1 if side else -1
+            point = self.nodes[:, cut]
+            point[axis] += offset * self.spacing[axis] * fraction[cut]
+            points.append(point)
+            owners.append(np.roll(self.owners, -offset, axis=axis)[cut])
+        points = _wrap(np.concatenate(points, axis=1), lower, periods, self.periodic)
+        return points, np.concatenate(owners)
+
+    @property
+    def points(self):
+        """Crossing points in world coordinates, (ndim, n); periodic images wrapped."""
+        return self._crossings[0]
+
+    @property
+    def crossing_owners(self):
+        """Index into ``objects`` of the object each crossing enters, (n,)."""
+        return self._crossings[1]
+
+    @cached_property
+    def normals(self):
+        """Outward unit normals of the entered object at ``points``, (ndim, n)."""
+        points, owners = self._crossings
+        normals = np.full_like(points, np.nan)
+        for number, obj in enumerate(self.objects):
+            mine = owners == number
+            if mine.any():
+                normals[:, mine] = obj.surface_normal(points[:, mine])
+        return normals
+
+    def show_3d(self, **kwargs):
+        """Draw the objects, the crossings and optionally normals and solid nodes.
+
+        Takes the keyword arguments of :meth:`CutEdges.show_3d`; several objects
+        are drawn as one collection.
+        """
+        from simgeometry.collection import GeometryCollection
+
+        if len(self.objects) == 1:
+            shape = self.objects[0]
+        else:
+            shape = GeometryCollection(list(self.objects))
+        return _show_crossings_3d(
+            shape,
+            self.points,
+            self.normals if kwargs.get("normals") else None,
+            self.nodes[:, self.solid],
+            self.spacing,
+            **kwargs,
+        )
 
 
 @sp.profile("simgeometry.bracketed_edge_geometry", tags=_PROFILE_TAGS)

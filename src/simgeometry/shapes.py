@@ -170,6 +170,10 @@ class Shape(GeometryAPI, ABC):
         points = _component_major(points, self.ndim)
         return xp.asarray([bool(self.contains(p)) for p in points.T], dtype=bool)
 
+    def _level_set(self, points: Array) -> Array:
+        """The level set of the geometry itself, before inversion."""
+        raise NotImplementedError(f"{type(self).__name__} has no level set")
+
     def level_set(self, points: Array) -> Array:
         """Level-set values of the ``(ndim, n)`` points: negative inside, positive outside.
 
@@ -184,10 +188,6 @@ class Shape(GeometryAPI, ABC):
             raise NotImplementedError(f"{type(self).__name__} has no level set")
         values = self._level_set(_component_major(points, self.ndim))
         return -values if self.inverted else values
-
-    def _level_set(self, points: Array) -> Array:
-        """The level set of the geometry itself, before inversion."""
-        raise NotImplementedError(f"{type(self).__name__} has no level set")
 
     @sp.profile("simgeometry.node_mask", tags=_PROFILE_TAGS)
     def node_mask(self, grid: Grid) -> np.ndarray:
@@ -338,6 +338,17 @@ class Shape2D(Shape):
         bool: True if the coordinates are inside the shape, False otherwise.
         """
 
+    def _corner_loops(self) -> list[np.ndarray]:
+        """The unrefined ``(2, n)`` boundary loops; polygonal shapes define this."""
+        raise NotImplementedError(f"{type(self).__name__} has no outline")
+
+    def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
+        """The loops of :meth:`_corner_loops`, refined; curved shapes override this."""
+        loops = self._corner_loops()
+        if max_spacing is None:
+            return loops
+        return [_refine_loop(loop, max_spacing, closed=self.closed) for loop in loops]
+
     def outlines(self, max_spacing: Spacing | None = None) -> list[np.ndarray]:
         """Return the boundary loops of the shape as ``(2, n)`` host arrays.
 
@@ -373,10 +384,6 @@ class Shape2D(Shape):
 
         return boundary_panels(self, max_spacing)
 
-    def _corner_loops(self) -> list[np.ndarray]:
-        """The unrefined ``(2, n)`` boundary loops; polygonal shapes define this."""
-        raise NotImplementedError(f"{type(self).__name__} has no outline")
-
     def _edge_level_set(self, points: Array) -> Array:
         """Distance to the edges of :meth:`_corner_loops`, negative where the geometry is.
 
@@ -393,13 +400,6 @@ class Shape2D(Shape):
         if self.inverted:
             inside = ~inside
         return xp.where(inside, -distance, distance)
-
-    def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
-        """The loops of :meth:`_corner_loops`, refined; curved shapes override this."""
-        loops = self._corner_loops()
-        if max_spacing is None:
-            return loops
-        return [_refine_loop(loop, max_spacing, closed=self.closed) for loop in loops]
 
     def plot(self, ax: Any = None, **kwargs: Any) -> Any:
         """Draw the shape as filled polygons into ``ax`` and return the axes.

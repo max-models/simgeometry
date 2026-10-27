@@ -62,62 +62,6 @@ class Crossings:
         return int(self.hit.shape[0])
 
 
-@sp.profile("simgeometry.crossings", tags=_PROFILE_TAGS)
-def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
-    """Return the first boundary crossing of each segment ``start[:, i] -> end[:, i]``.
-
-    See the module docstring for the conventions and which shapes are analytic.
-    """
-    a = _component_major(start, shape.ndim)
-    b = _component_major(end, shape.ndim)
-    if a.shape != b.shape:
-        raise ValueError(f"start {a.shape} and end {b.shape} must have the same shape")
-    if int(samples) != samples or samples < 2:
-        raise ValueError("samples must be an integer >= 2")
-    if int(iterations) != iterations or iterations < 1:
-        raise ValueError("iterations must be a positive integer")
-    t, normal, exact = _first(shape, a, b - a, int(samples), int(iterations))
-    hit = xp.isfinite(t)
-    fraction = xp.where(hit, t, xp.nan)
-    point = xp.where(hit[None, :], a + xp.where(hit, t, 0.0)[None, :] * (b - a), xp.nan)
-    normal = xp.where(hit[None, :], normal, xp.nan)
-    return Crossings(hit, fraction, point, normal, exact)
-
-
-def _first(shape, a, d, samples, iterations):
-    """Fraction ``(N,)`` (inf without a hit) and normal ``(ndim, N)`` of the first crossing."""
-    from simgeometry.objects import (
-        Aperture2D,
-        Circle,
-        Cuboid,
-        Line,
-        Polygon,
-        Rectangle,
-        SlantedTube,
-        Sphere,
-        Triangle,
-    )
-    from simgeometry.operations import TransformedShape
-
-    if isinstance(shape, TransformedShape):
-        return _transformed(shape, a, d, samples, iterations)
-    if isinstance(shape, (Circle, Sphere)):
-        return (*_ball(shape, a, d), True)
-    if isinstance(shape, SlantedTube):
-        t, normal = shape._first_crossing(a, d, START_TOLERANCE)
-        return t, _flip(shape, normal), True
-    if isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0:
-        return (*_rounded_box(shape, a, d), True)
-    if isinstance(shape, (Rectangle, Cuboid, Line)):
-        return (*_box(shape, a, d), True)
-    polygonal = (Polygon, Triangle, Aperture2D)
-    if shape.ndim == 2 and (
-        getattr(shape, "exact_outline", False) or isinstance(shape, polygonal)
-    ):
-        return (*_polygon(shape, a, d), True)
-    return (*_sampled(shape, a, d, samples, iterations), False)
-
-
 def _flip(shape, normal):
     return -normal if shape.inverted else normal
 
@@ -197,6 +141,30 @@ def _rounded_box(shape, a, d):
     return t, _flip(shape, normal)
 
 
+def _polygon_chunk(a, d, p, e, edge_length):
+    d0, d1 = d[0][:, None], d[1][:, None]
+    w0 = p[0][None, :] - a[0][:, None]
+    w1 = p[1][None, :] - a[1][:, None]
+    den = d0 * e[1][None, :] - d1 * e[0][None, :]
+    step = xp.sqrt(d0 * d0 + d1 * d1)
+    proper = xp.abs(den) > 1e-14 * step * edge_length[None, :]
+    safe = xp.where(proper, den, 1.0)
+    t = (w0 * e[1][None, :] - w1 * e[0][None, :]) / safe
+    u = (w0 * d1 - w1 * d0) / safe
+    tol = 1e-12
+    valid = (
+        proper & (u >= -tol) & (u <= 1 + tol) & (t > START_TOLERANCE) & (t <= 1 + tol)
+    )
+    t = xp.where(valid, xp.minimum(t, 1.0), xp.inf)
+    edge = xp.argmin(t, axis=1) if t.shape[1] else xp.zeros(t.shape[0], dtype=int)
+    first = (
+        xp.take_along_axis(t, edge[:, None], axis=1)[:, 0]
+        if t.shape[1]
+        else xp.full(t.shape[0], xp.inf)
+    )
+    return first, edge
+
+
 def _polygon(shape, a, d):
     closed = getattr(shape, "closed", True)
     starts, ends = [], []
@@ -228,77 +196,6 @@ def _polygon(shape, a, d):
         return t, _flip(shape, normal)
     facing = xp.sum(normal * d, axis=0)
     return t, xp.where(facing > 0, -normal, normal)
-
-
-def _polygon_chunk(a, d, p, e, edge_length):
-    d0, d1 = d[0][:, None], d[1][:, None]
-    w0 = p[0][None, :] - a[0][:, None]
-    w1 = p[1][None, :] - a[1][:, None]
-    den = d0 * e[1][None, :] - d1 * e[0][None, :]
-    step = xp.sqrt(d0 * d0 + d1 * d1)
-    proper = xp.abs(den) > 1e-14 * step * edge_length[None, :]
-    safe = xp.where(proper, den, 1.0)
-    t = (w0 * e[1][None, :] - w1 * e[0][None, :]) / safe
-    u = (w0 * d1 - w1 * d0) / safe
-    tol = 1e-12
-    valid = (
-        proper & (u >= -tol) & (u <= 1 + tol) & (t > START_TOLERANCE) & (t <= 1 + tol)
-    )
-    t = xp.where(valid, xp.minimum(t, 1.0), xp.inf)
-    edge = xp.argmin(t, axis=1) if t.shape[1] else xp.zeros(t.shape[0], dtype=int)
-    first = (
-        xp.take_along_axis(t, edge[:, None], axis=1)[:, 0]
-        if t.shape[1]
-        else xp.full(t.shape[0], xp.inf)
-    )
-    return first, edge
-
-
-def _transformed(shape, a, d, samples, iterations):
-    inverse = xp.asarray(shape.inverse)
-    offset = xp.asarray(shape.offset)[:, None]
-    local_a = inverse @ (a - offset)
-    local_d = inverse @ d
-    t, normal, exact = _first(shape.source, local_a, local_d, samples, iterations)
-    normal = inverse.T @ xp.where(xp.isfinite(normal), normal, 0.0)
-    length = xp.sqrt(xp.sum(normal * normal, axis=0))
-    normal = normal / xp.where(length > 0, length, xp.nan)
-    return t, normal, exact
-
-
-def _sampled(shape, a, d, samples, iterations):
-    """First membership change along each segment, sampled then bisected."""
-    n = a.shape[1]
-    ndim = a.shape[0]
-    if n == 0:
-        return xp.full(0, xp.inf), xp.zeros((ndim, 0))
-    ts = xp.linspace(0.0, 1.0, samples + 1)
-    state = _inside(shape, a, d, ts)  # (n, samples + 1)
-    change = state[:, :-1] != state[:, 1:]
-    has = xp.any(change, axis=1)
-    index = xp.argmax(change, axis=1)
-    lo = ts[index]
-    hi = ts[index + 1]
-    start_state = xp.take_along_axis(state, index[:, None], axis=1)[:, 0]
-    t = xp.full(n, xp.nan)
-    rest = xp.flatnonzero(has)  # segments without a membership change need no search
-    level = has_level_set(shape)
-    if level:
-        t, rest = _level_set_refined(shape, a, d, has, lo, hi, iterations)
-    if rest.shape[0]:
-        lo, hi, start_state = lo[rest], hi[rest], start_state[rest]
-        a_rest, d_rest = a[:, rest], d[:, rest]
-        for _ in range(iterations):
-            mid = 0.5 * (lo + hi)
-            same = _contains(shape, a_rest + mid[None, :] * d_rest) == start_state
-            lo = xp.where(same, mid, lo)
-            hi = xp.where(same, hi, mid)
-        t[rest] = 0.5 * (lo + hi)
-    t = xp.where(has & (t > START_TOLERANCE), t, xp.inf)
-    point = a + xp.where(has, t, 0.0)[None, :] * d
-    if level:
-        return t, _level_set_normal(shape, point)
-    return t, _estimated_normal(shape, point)
 
 
 def _level_set_refined(shape, a, d, has, lo, hi, iterations):
@@ -394,3 +291,106 @@ def _estimated_normal(shape, points):
     on_boundary = xp.any(inside, axis=1) & ~xp.all(inside, axis=1) & (length > 0)
     normal = normal / xp.where(length > 0, length, 1.0)[:, None]
     return xp.where(on_boundary[None, :], normal.T, xp.nan)
+
+
+def _sampled(shape, a, d, samples, iterations):
+    """First membership change along each segment, sampled then bisected."""
+    n = a.shape[1]
+    ndim = a.shape[0]
+    if n == 0:
+        return xp.full(0, xp.inf), xp.zeros((ndim, 0))
+    ts = xp.linspace(0.0, 1.0, samples + 1)
+    state = _inside(shape, a, d, ts)  # (n, samples + 1)
+    change = state[:, :-1] != state[:, 1:]
+    has = xp.any(change, axis=1)
+    index = xp.argmax(change, axis=1)
+    lo = ts[index]
+    hi = ts[index + 1]
+    start_state = xp.take_along_axis(state, index[:, None], axis=1)[:, 0]
+    t = xp.full(n, xp.nan)
+    rest = xp.flatnonzero(has)  # segments without a membership change need no search
+    level = has_level_set(shape)
+    if level:
+        t, rest = _level_set_refined(shape, a, d, has, lo, hi, iterations)
+    if rest.shape[0]:
+        lo, hi, start_state = lo[rest], hi[rest], start_state[rest]
+        a_rest, d_rest = a[:, rest], d[:, rest]
+        for _ in range(iterations):
+            mid = 0.5 * (lo + hi)
+            same = _contains(shape, a_rest + mid[None, :] * d_rest) == start_state
+            lo = xp.where(same, mid, lo)
+            hi = xp.where(same, hi, mid)
+        t[rest] = 0.5 * (lo + hi)
+    t = xp.where(has & (t > START_TOLERANCE), t, xp.inf)
+    point = a + xp.where(has, t, 0.0)[None, :] * d
+    if level:
+        return t, _level_set_normal(shape, point)
+    return t, _estimated_normal(shape, point)
+
+
+def _first(shape, a, d, samples, iterations):
+    """Fraction ``(N,)`` (inf without a hit) and normal ``(ndim, N)`` of the first crossing."""
+    from simgeometry.objects import (
+        Aperture2D,
+        Circle,
+        Cuboid,
+        Line,
+        Polygon,
+        Rectangle,
+        SlantedTube,
+        Sphere,
+        Triangle,
+    )
+    from simgeometry.operations import TransformedShape
+
+    if isinstance(shape, TransformedShape):
+        return _transformed(shape, a, d, samples, iterations)
+    if isinstance(shape, (Circle, Sphere)):
+        return (*_ball(shape, a, d), True)
+    if isinstance(shape, SlantedTube):
+        t, normal = shape._first_crossing(a, d, START_TOLERANCE)
+        return t, _flip(shape, normal), True
+    if isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0:
+        return (*_rounded_box(shape, a, d), True)
+    if isinstance(shape, (Rectangle, Cuboid, Line)):
+        return (*_box(shape, a, d), True)
+    polygonal = (Polygon, Triangle, Aperture2D)
+    if shape.ndim == 2 and (
+        getattr(shape, "exact_outline", False) or isinstance(shape, polygonal)
+    ):
+        return (*_polygon(shape, a, d), True)
+    return (*_sampled(shape, a, d, samples, iterations), False)
+
+
+@sp.profile("simgeometry.crossings", tags=_PROFILE_TAGS)
+def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
+    """Return the first boundary crossing of each segment ``start[:, i] -> end[:, i]``.
+
+    See the module docstring for the conventions and which shapes are analytic.
+    """
+    a = _component_major(start, shape.ndim)
+    b = _component_major(end, shape.ndim)
+    if a.shape != b.shape:
+        raise ValueError(f"start {a.shape} and end {b.shape} must have the same shape")
+    if int(samples) != samples or samples < 2:
+        raise ValueError("samples must be an integer >= 2")
+    if int(iterations) != iterations or iterations < 1:
+        raise ValueError("iterations must be a positive integer")
+    t, normal, exact = _first(shape, a, b - a, int(samples), int(iterations))
+    hit = xp.isfinite(t)
+    fraction = xp.where(hit, t, xp.nan)
+    point = xp.where(hit[None, :], a + xp.where(hit, t, 0.0)[None, :] * (b - a), xp.nan)
+    normal = xp.where(hit[None, :], normal, xp.nan)
+    return Crossings(hit, fraction, point, normal, exact)
+
+
+def _transformed(shape, a, d, samples, iterations):
+    inverse = xp.asarray(shape.inverse)
+    offset = xp.asarray(shape.offset)[:, None]
+    local_a = inverse @ (a - offset)
+    local_d = inverse @ d
+    t, normal, exact = _first(shape.source, local_a, local_d, samples, iterations)
+    normal = inverse.T @ xp.where(xp.isfinite(normal), normal, 0.0)
+    length = xp.sqrt(xp.sum(normal * normal, axis=0))
+    normal = normal / xp.where(length > 0, length, xp.nan)
+    return t, normal, exact

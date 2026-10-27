@@ -193,6 +193,15 @@ class Rectangle(Shape2D):
             return bool(xp.to_numpy(self.contains_points(point))[0])
         return self._apply_inversion(self.bounding_box.contains(coords))
 
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the rectangle, rounded or not."""
+        lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
+        upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
+        f = self.fillet
+        return (
+            box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower) - f) - f
+        )
+
     def contains_points(self, points: Array) -> Array:
         """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
         points = _component_major(points, 2)
@@ -203,12 +212,3 @@ class Rectangle(Shape2D):
         upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
         inside = xp.all((points >= lower) & (points < upper), axis=0)
         return ~inside if self.inverted else inside
-
-    def _level_set(self, points: Array) -> Array:
-        """Exact signed distance to the rectangle, rounded or not."""
-        lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
-        upper = xp.asarray(self.bounding_box.upper_bound, dtype=float)[:, None]
-        f = self.fillet
-        return (
-            box_distance(points - 0.5 * (lower + upper), 0.5 * (upper - lower) - f) - f
-        )

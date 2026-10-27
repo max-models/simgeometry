@@ -78,15 +78,6 @@ class Tube(CappedAxisymmetricShape):
             fillet=self.fillet,
         )
 
-    def _inside(self, s: Array, rho2: Array) -> Array:
-        if self.fillet > 0:
-            return self._profile_distance(s, xp.sqrt(rho2)) <= 0
-        return (
-            (xp.abs(s) <= self._half_length)
-            & (rho2 >= self.inner_radius**2)
-            & (rho2 <= self.outer_radius**2)
-        )
-
     def _profile_distance(self, s: Array, rho: Array) -> Array:
         f = self.fillet
         middle = 0.5 * (self.inner_radius + self.outer_radius)
@@ -96,6 +87,15 @@ class Tube(CappedAxisymmetricShape):
                 rho - middle, s, half_thickness - f, self._half_length - f
             )
             - f
+        )
+
+    def _inside(self, s: Array, rho2: Array) -> Array:
+        if self.fillet > 0:
+            return self._profile_distance(s, xp.sqrt(rho2)) <= 0
+        return (
+            (xp.abs(s) <= self._half_length)
+            & (rho2 >= self.inner_radius**2)
+            & (rho2 <= self.outer_radius**2)
         )
 
     def volume(self) -> float:

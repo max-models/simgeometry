@@ -57,6 +57,25 @@ class GeometryCollection(Shape):
 
     level_set_exact = False
 
+    def _checked_voltages(self, voltages):
+        """``voltages`` as a dict in object order, checking names and values."""
+        unknown = set(voltages) - set(self.names)
+        if unknown:
+            raise ValueError(f"Voltages name unknown objects: {sorted(unknown)}")
+        for name, value in voltages.items():
+            if isinstance(value, bool) or not (
+                callable(value) or isinstance(value, Real)
+            ):
+                raise TypeError(
+                    f"The voltage of {name!r} must be a number or a function of t, "
+                    f"got {type(value).__name__}"
+                )
+        return {
+            name: value if callable(value) else float(value)
+            for name in self.names
+            if (value := voltages.get(name)) is not None
+        }
+
     def __init__(self, objects, *, bounds=None, styles=None, voltages=None):
         if not isinstance(objects, Mapping):
             objects = {f"object_{i + 1}": obj for i, obj in enumerate(objects)}
@@ -81,28 +100,6 @@ class GeometryCollection(Shape):
             raise ValueError("All collection objects must have the same dimension")
         self._inverted = any(obj.inverted for obj in self.objects)
         super().__init__(ndim, *bounds)
-
-    def __getitem__(self, name):
-        return self.named_objects[name]
-
-    def _checked_voltages(self, voltages):
-        """``voltages`` as a dict in object order, checking names and values."""
-        unknown = set(voltages) - set(self.names)
-        if unknown:
-            raise ValueError(f"Voltages name unknown objects: {sorted(unknown)}")
-        for name, value in voltages.items():
-            if isinstance(value, bool) or not (
-                callable(value) or isinstance(value, Real)
-            ):
-                raise TypeError(
-                    f"The voltage of {name!r} must be a number or a function of t, "
-                    f"got {type(value).__name__}"
-                )
-        return {
-            name: value if callable(value) else float(value)
-            for name in self.names
-            if (value := voltages.get(name)) is not None
-        }
 
     @property
     def conductors(self):
@@ -191,3 +188,6 @@ class GeometryCollection(Shape):
 
     def evaluate(self, *args, quantity="labels", **kwargs):
         return super().evaluate(*args, quantity=quantity, **kwargs)
+
+    def __getitem__(self, name):
+        return self.named_objects[name]

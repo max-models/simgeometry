@@ -234,80 +234,6 @@ def _segments_inside(geometry, start, end, *, samples, max_hits, offsets=()):
     return fraction, hits
 
 
-@sp.profile("simgeometry.yee_fractions", tags=_PROFILE_TAGS)
-def yee_fractions(geometry, grid, *, samples=64, max_hits=16):
-    """Edge-length and face-area fractions of a Yee grid cut by ``geometry``.
-
-    For cut-cell (conformal) finite-difference and finite-integration schemes: the
-    edges and faces of the grid of nodes ``grid`` (a :class:`~simgeometry.Grid`, 2D or
-    3D), with the parts of their lengths and areas inside the geometry and the trace of
-    the surface in each face. See :class:`YeeFractions` for the layout and accuracy.
-    ``samples`` is the sampling of shapes without analytic crossings and ``max_hits``
-    the most crossings counted per segment.
-    """
-    ndim = grid.ndim
-    if geometry.ndim != ndim:
-        raise ValueError("Geometry and grid dimensions must match")
-    if ndim not in (2, 3):
-        raise ValueError("Yee fractions need a 2D or 3D grid")
-    if int(max_hits) != max_hits or max_hits < 1:
-        raise ValueError("max_hits must be a positive integer")
-    periodic = tuple(getattr(grid, "periodic", None) or (False,) * ndim)
-    nodes = tuple(int(n) for n in grid.num_gridpoints)
-    cells = tuple(n if p else n - 1 for n, p in zip(nodes, periodic))
-    if min(cells) < 1:
-        raise ValueError("Yee fractions need at least one cell per axis")
-    h = np.asarray(xp.to_numpy(grid.grid_spacing), dtype=float)
-    lower = np.asarray(xp.to_numpy(grid.lower_bound), dtype=float).reshape(-1)
-
-    def corners(shape):
-        index = np.indices(shape).reshape(ndim, -1).astype(float)
-        return lower[:, None] + index * h[:, None]
-
-    edges, hits = [], []
-    for a in range(ndim):
-        shape = tuple(cells[b] if b == a else nodes[b] for b in range(ndim))
-        start = corners(shape)
-        end = start.copy()
-        end[a] += h[a]
-        # a wall along the edge (in a grid plane through it) counts as inside
-        offsets = [(b, _NUDGE * h[b]) for b in range(ndim) if b != a]
-        fraction, t = _segments_inside(
-            geometry, start, end, samples=samples, max_hits=max_hits, offsets=offsets
-        )
-        edges.append(fraction.reshape(shape))
-        hits.append(t.reshape(*shape, t.shape[1]))
-
-    families = [(1, 2), (2, 0), (0, 1)] if ndim == 3 else [(0, 1)]
-    faces, traces, projected = [], [], []
-    for number, (b, c) in enumerate(families):
-        normal_axis = number if ndim == 3 else None
-        shape = tuple(nodes[d] if d == normal_axis else cells[d] for d in range(ndim))
-        result = _face_integrals(
-            geometry,
-            shape,
-            corners(shape),
-            b,
-            c,
-            hits,
-            h,
-            nodes,
-            periodic,
-            samples=samples,
-            max_hits=max_hits,
-        )
-        faces.append(result[0].reshape(shape))
-        traces.append(result[1].reshape(shape))
-        projected.append(result[2].reshape(shape))
-    return YeeFractions(
-        tuple(edges),
-        tuple(faces),
-        tuple(traces),
-        tuple(projected),
-        tuple(float(v) for v in h),
-    )
-
-
 def _lines_across(geometry, starts, stops, along, across, h, samples, max_hits):
     """Integrate lines along ``along`` across faces, between breakpoints ``stops``.
 
@@ -509,3 +435,77 @@ def _face_integrals(
     # the quadrature's round-off next to fully inside or outside faces
     area = np.where(area < 1e-12, 0.0, np.where(area > 1 - 1e-12, 1.0, area))
     return area, trace, projected
+
+
+@sp.profile("simgeometry.yee_fractions", tags=_PROFILE_TAGS)
+def yee_fractions(geometry, grid, *, samples=64, max_hits=16):
+    """Edge-length and face-area fractions of a Yee grid cut by ``geometry``.
+
+    For cut-cell (conformal) finite-difference and finite-integration schemes: the
+    edges and faces of the grid of nodes ``grid`` (a :class:`~simgeometry.Grid`, 2D or
+    3D), with the parts of their lengths and areas inside the geometry and the trace of
+    the surface in each face. See :class:`YeeFractions` for the layout and accuracy.
+    ``samples`` is the sampling of shapes without analytic crossings and ``max_hits``
+    the most crossings counted per segment.
+    """
+    ndim = grid.ndim
+    if geometry.ndim != ndim:
+        raise ValueError("Geometry and grid dimensions must match")
+    if ndim not in (2, 3):
+        raise ValueError("Yee fractions need a 2D or 3D grid")
+    if int(max_hits) != max_hits or max_hits < 1:
+        raise ValueError("max_hits must be a positive integer")
+    periodic = tuple(getattr(grid, "periodic", None) or (False,) * ndim)
+    nodes = tuple(int(n) for n in grid.num_gridpoints)
+    cells = tuple(n if p else n - 1 for n, p in zip(nodes, periodic))
+    if min(cells) < 1:
+        raise ValueError("Yee fractions need at least one cell per axis")
+    h = np.asarray(xp.to_numpy(grid.grid_spacing), dtype=float)
+    lower = np.asarray(xp.to_numpy(grid.lower_bound), dtype=float).reshape(-1)
+
+    def corners(shape):
+        index = np.indices(shape).reshape(ndim, -1).astype(float)
+        return lower[:, None] + index * h[:, None]
+
+    edges, hits = [], []
+    for a in range(ndim):
+        shape = tuple(cells[b] if b == a else nodes[b] for b in range(ndim))
+        start = corners(shape)
+        end = start.copy()
+        end[a] += h[a]
+        # a wall along the edge (in a grid plane through it) counts as inside
+        offsets = [(b, _NUDGE * h[b]) for b in range(ndim) if b != a]
+        fraction, t = _segments_inside(
+            geometry, start, end, samples=samples, max_hits=max_hits, offsets=offsets
+        )
+        edges.append(fraction.reshape(shape))
+        hits.append(t.reshape(*shape, t.shape[1]))
+
+    families = [(1, 2), (2, 0), (0, 1)] if ndim == 3 else [(0, 1)]
+    faces, traces, projected = [], [], []
+    for number, (b, c) in enumerate(families):
+        normal_axis = number if ndim == 3 else None
+        shape = tuple(nodes[d] if d == normal_axis else cells[d] for d in range(ndim))
+        result = _face_integrals(
+            geometry,
+            shape,
+            corners(shape),
+            b,
+            c,
+            hits,
+            h,
+            nodes,
+            periodic,
+            samples=samples,
+            max_hits=max_hits,
+        )
+        faces.append(result[0].reshape(shape))
+        traces.append(result[1].reshape(shape))
+        projected.append(result[2].reshape(shape))
+    return YeeFractions(
+        tuple(edges),
+        tuple(faces),
+        tuple(traces),
+        tuple(projected),
+        tuple(float(v) for v in h),
+    )

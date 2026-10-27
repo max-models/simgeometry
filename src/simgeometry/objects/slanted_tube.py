@@ -18,6 +18,15 @@ def _orthonormal(axis: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return first, np.cross(axis, first)
 
 
+def _plane_roots(w_s, d_s, w_n, d_n):
+    """Crossings with the start plane (label 0) and the cut plane (label 1)."""
+    moving_s = d_s != 0
+    t_start = -w_s / xp.where(moving_s, d_s, 1.0)
+    moving_n = d_n != 0
+    t_cut = -w_n / xp.where(moving_n, d_n, 1.0)
+    return [(t_start, moving_s, 0, "start"), (t_cut, moving_n, 1, "cut")]
+
+
 class SlantedTube(Shape3D):
     """A tube from ``start`` to ``end`` whose end at ``end`` is cut by a slanted plane.
 
@@ -45,6 +54,31 @@ class SlantedTube(Shape3D):
 
     has_level_set = True
     level_set_exact = False
+
+    def _check_cut(self) -> None:
+        cosine = float(self._normal @ self._axis)
+        if cosine <= 0:
+            raise ValueError("cut_normal must point along the axis, away from start")
+        tangent = np.sqrt(max(1.0 - cosine**2, 0.0)) / cosine
+        if self.outer_radius * tangent >= self._length:
+            raise ValueError(
+                "The cut reaches the start face: need outer_radius * tan(angle) < length"
+            )
+
+    def _bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """The box around the start disc and the elliptic rim of the cut."""
+        radius = self.outer_radius
+        first, second = _orthonormal(self._axis)
+        disc = radius * np.sqrt(np.clip(1.0 - self._axis**2, 0.0, None))
+        # rim: end + R (cos f u + sin f v) + s(f) a with s chosen to stay on the plane
+        along = self._normal @ self._axis
+        u = first - self._axis * (self._normal @ first) / along
+        v = second - self._axis * (self._normal @ second) / along
+        rim = radius * np.sqrt(u**2 + v**2)
+        end = np.asarray(self.end)
+        lower = np.minimum(self._start - disc, end - rim)
+        upper = np.maximum(self._start + disc, end + rim)
+        return tuple(float(c) for c in lower), tuple(float(c) for c in upper)
 
     def __init__(
         self,
@@ -90,16 +124,6 @@ class SlantedTube(Shape3D):
         self._inverted = bool(inverted)
         super().__init__(*self._bounds())
 
-    def _check_cut(self) -> None:
-        cosine = float(self._normal @ self._axis)
-        if cosine <= 0:
-            raise ValueError("cut_normal must point along the axis, away from start")
-        tangent = np.sqrt(max(1.0 - cosine**2, 0.0)) / cosine
-        if self.outer_radius * tangent >= self._length:
-            raise ValueError(
-                "The cut reaches the start face: need outer_radius * tan(angle) < length"
-            )
-
     @property
     def start(self) -> tuple[float, float, float]:
         """The centre of the flat end face."""
@@ -130,21 +154,6 @@ class SlantedTube(Shape3D):
     def length(self) -> float:
         """The distance from ``start`` to ``end`` along the axis."""
         return self._length
-
-    def _bounds(self) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """The box around the start disc and the elliptic rim of the cut."""
-        radius = self.outer_radius
-        first, second = _orthonormal(self._axis)
-        disc = radius * np.sqrt(np.clip(1.0 - self._axis**2, 0.0, None))
-        # rim: end + R (cos f u + sin f v) + s(f) a with s chosen to stay on the plane
-        along = self._normal @ self._axis
-        u = first - self._axis * (self._normal @ first) / along
-        v = second - self._axis * (self._normal @ second) / along
-        rim = radius * np.sqrt(u**2 + v**2)
-        end = np.asarray(self.end)
-        lower = np.minimum(self._start - disc, end - rim)
-        upper = np.maximum(self._start + disc, end + rim)
-        return tuple(float(c) for c in lower), tuple(float(c) for c in upper)
 
     def _update_bounds(self) -> None:
         self.set_bounding_box(*self._bounds())
@@ -328,12 +337,3 @@ class SlantedTube(Shape3D):
         out = xp.where((kind == 2)[None, :], radial, out)
         out = xp.where((kind == 3)[None, :], -radial, out)
         return best, out
-
-
-def _plane_roots(w_s, d_s, w_n, d_n):
-    """Crossings with the start plane (label 0) and the cut plane (label 1)."""
-    moving_s = d_s != 0
-    t_start = -w_s / xp.where(moving_s, d_s, 1.0)
-    moving_n = d_n != 0
-    t_cut = -w_n / xp.where(moving_n, d_n, 1.0)
-    return [(t_start, moving_s, 0, "start"), (t_cut, moving_n, 1, "cut")]

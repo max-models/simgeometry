@@ -36,6 +36,19 @@ from simgeometry.objects.polygon import Polygon
 Array = Any
 
 
+def _c_ordered(points: Array) -> Array:
+    """``points`` as a float ``(2, N)`` array with C strides, copied only if needed.
+
+    A ``(2, 1)`` column picked by fancy indexing keeps Fortran strides that NumPy
+    still flags as C-contiguous; Pyccel checks the strides.
+    """
+    points = xp.ascontiguousarray(xp.asarray(points, dtype=float))
+    itemsize = points.dtype.itemsize
+    if tuple(points.strides) != (points.shape[1] * itemsize, itemsize):
+        points = points.copy(order="C")
+    return points
+
+
 @dataclass(frozen=True)
 class PolygonObjects:
     """Polygon objects ``objects[index[k]]``, slot ``k``, as kernel arrays.
@@ -130,17 +143,10 @@ class PolygonObjects:
         return hit
 
 
-def _c_ordered(points: Array) -> Array:
-    """``points`` as a float ``(2, N)`` array with C strides, copied only if needed.
-
-    A ``(2, 1)`` column picked by fancy indexing keeps Fortran strides that NumPy
-    still flags as C-contiguous; Pyccel checks the strides.
-    """
-    points = xp.ascontiguousarray(xp.asarray(points, dtype=float))
-    itemsize = points.dtype.itemsize
-    if tuple(points.strides) != (points.shape[1] * itemsize, itemsize):
-        points = points.copy(order="C")
-    return points
+def _host_vertices(vertices: Array) -> np.ndarray:
+    if xp.is_gpu(vertices):
+        vertices = xp.to_numpy(vertices)
+    return np.asarray(vertices, dtype=float)
 
 
 def object_polygons(obj: object) -> list[np.ndarray] | None:
@@ -151,12 +157,6 @@ def object_polygons(obj: object) -> list[np.ndarray] | None:
     if isinstance(obj, Polygon):
         return [_host_vertices(obj.vertices)]
     return None
-
-
-def _host_vertices(vertices: Array) -> np.ndarray:
-    if xp.is_gpu(vertices):
-        vertices = xp.to_numpy(vertices)
-    return np.asarray(vertices, dtype=float)
 
 
 #: The packed objects of recent calls; the key holds the objects themselves
