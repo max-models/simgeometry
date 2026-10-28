@@ -58,6 +58,9 @@ optional-dependencies.metal = [ "mlx; sys_platform == 'darwin' and platform_mach
 optional-dependencies.test = [ "mpi4py", "pytest", "pytest-cov", "simgeometry[clip]" ]
 urls.Source = "https://github.com/max-models/simgeometry"
 
+[project.entry-points."scope_profiler.opt_in_tags"]
+simgeometry = "simgeometry"
+
 [tool.setuptools]
 package-data."*" = [ "py.typed" ]
 package-data.simgeometry = [ "kernels/*.cuh", "kernels/*/*.cu" ]
