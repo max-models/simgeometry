@@ -30,3 +30,17 @@ def test_regions_are_off_by_default() -> None:
 
 def test_enabling_the_tag_records_the_regions() -> None:
     assert _node_mask_regions(enable_tags=["simgeometry"]) == ["simgeometry.node_mask"]
+
+
+def test_the_opt_in_tag_has_an_entry_point():
+    """``scope-profiler tags`` finds the tag through the package's entry point."""
+    from importlib.metadata import entry_points
+
+    from simgeometry._profiling import _PROFILE_TAGS
+
+    found = {
+        entry_point.name: entry_point.value
+        for entry_point in entry_points(group="scope_profiler.opt_in_tags")
+    }
+    assert found.get("simgeometry") == "simgeometry"
+    assert "simgeometry" in _PROFILE_TAGS
