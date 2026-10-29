@@ -25,27 +25,27 @@ jobs:
     uses: max-models/starlight-theme/.github/workflows/docs.yml@v0.6.0
     with:
       node-version: "24"
-      # the PyVista scenes in the tutorials render under a virtual display
+      # the PyVista scenes in the examples render under a virtual display
       xvfb: true
       smoke-paths: |
         getting-started/installation/index.html
-        tutorials/index.html
-        tutorials/grids-and-coordinates/index.html
-        tutorials/shapes-and-node-masks/index.html
-        tutorials/parallel-grids/index.html
+        examples/index.html
+        examples/grids-and-coordinates/index.html
+        examples/shapes-and-node-masks/index.html
+        examples/parallel-grids/index.html
         api/simgeometry/index.html
         api/simgeometry/grid/index.html
-        tutorials/grids-and-coordinates/grids_and_coordinates.ipynb
-        tutorials/shapes-and-node-masks/shapes_and_node_masks.ipynb
-        tutorials/parallel-grids/parallel_grids.ipynb
-        tutorials/shapes-and-node-masks/1.png
-        tutorials/inspecting-geometry/4.html
-        tutorials/conductors-and-level-sets/2.html
-        tutorials/shapes-and-node-masks/2.png
-        tutorials/shapes-and-node-masks/3.html
-        tutorials/building-composite-shapes/5.html
-        tutorials/slices-and-coordinate-sampling/4.html
-        tutorials/sampling-export-and-diagnostics/2.html
-        tutorials/grid-intersections-and-cut-edges/2.html
-        tutorials/conductors-and-level-sets/4.html
-        tutorials/parallel-grids/1.html
+        examples/grids-and-coordinates/grids_and_coordinates.ipynb
+        examples/shapes-and-node-masks/shapes_and_node_masks.ipynb
+        examples/parallel-grids/parallel_grids.ipynb
+        examples/shapes-and-node-masks/1.png
+        examples/inspecting-geometry/4.html
+        examples/conductors-and-level-sets/2.html
+        examples/shapes-and-node-masks/2.png
+        examples/shapes-and-node-masks/3.html
+        examples/building-composite-shapes/5.html
+        examples/slices-and-coordinate-sampling/4.html
+        examples/sampling-export-and-diagnostics/2.html
+        examples/grid-intersections-and-cut-edges/2.html
+        examples/conductors-and-level-sets/4.html
+        examples/parallel-grids/1.html

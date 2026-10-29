@@ -39,7 +39,7 @@ names, overlap precedence and conductor voltages. Analytic shapes have a
 collections propagate and the crossing and distance queries use when present.
 `cut_edges` owns solver-independent intersections;
 `fractions` estimates cell/face occupancy. Picnic owns stencil coefficients and
-its minimum-distance regularization. Tutorials live in `tutorials/` and are
+its minimum-distance regularization. Example notebooks live in `tutorials/` and are
 executed into the documentation site.
 
 ## Subpackages
