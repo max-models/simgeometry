@@ -8,8 +8,6 @@ version = "0.1.1"
 description = "Shapes, grids, and simulation domains for numerical simulations"
 readme = "README.md"
 keywords = [ "geometry", "grids", "simulation", "mpi" ]
-license = "MIT"
-license-files = [ "LICENSE.txt" ]
 authors = [ { name = "Max" } ]
 requires-python = ">=3.10"
 classifiers = [
