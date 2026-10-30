@@ -52,7 +52,7 @@ inside = shell.evaluate(x=[0, 0.8], y=0, z=0)
 Shapes support named collections, Boolean operations, affine transforms,
 surface queries, point sampling, mesh export, cut-edge geometry and
 approximate cell/face fractions. See the [executed
-tutorials](https://max-models.github.io/simgeometry/tutorials/) and [API
+examples](https://max-models.github.io/simgeometry/examples/) and [API
 guide](https://max-models.github.io/simgeometry/getting-started/geometry-api/)
 for examples and the accuracy limits of sampled operations.
 
@@ -77,7 +77,7 @@ where it is the Euclidean signed distance; Booleans and transforms
 propagate it. Edge crossings refine it with a few secant steps instead
 of bisecting `contains`, and `signed_distance` returns an exact one
 directly. The [conductors
-tutorial](https://max-models.github.io/simgeometry/tutorials/conductors-and-level-sets/)
+example](https://max-models.github.io/simgeometry/examples/conductors-and-level-sets/)
 builds an Einzel lens.
 
 ## Preview a domain decomposition
@@ -97,7 +97,7 @@ would use without a communicator, for inspection and planning: index
 ranges, subdomains and owner ranks for every rank. `show_3d` draws one
 box per rank (with `simgeometry[interactive]`) and `show` one rectangle
 per rank of a 2D decomposition. See the [parallel grids
-tutorial](https://max-models.github.io/simgeometry/tutorials/parallel-grids/).
+example](https://max-models.github.io/simgeometry/examples/parallel-grids/).
 
 ## Profiling
 

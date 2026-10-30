@@ -181,7 +181,7 @@ and `conductors` lists the names with one.
 `labels()`: 0 outside every object, the last listed object winning in overlaps. The
 voltage is NaN outside the conductors, including inside an object without a voltage;
 `values.conductor` marks the nodes a field solver fixes. See the
-[conductors tutorial](/simgeometry/tutorials/conductors-and-level-sets/) for an
+[conductors example](/simgeometry/examples/conductors-and-level-sets/) for an
 Einzel lens.
 
 ## Exact geometry and numerical approximations
@@ -223,7 +223,7 @@ every vertex on the circle. Loops keep the shape on their left: outer boundaries
 counter-clockwise and holes clockwise. `max_spacing` can also be a function of `(2, m)`
 points returning `(m,)` spacings, which grades the vertices (fine near an aperture tip,
 coarse far from it); see the
-[boundary outlines tutorial](/simgeometry/tutorials/boundary-outlines/). Transformed 2D
+[boundary outlines example](/simgeometry/examples/boundary-outlines/). Transformed 2D
 shapes transform their source's loops. Boolean 2D shapes (`a | b`, `a & b`, `a - b`,
 nested) have outlines through shapely (`pip install 'simgeometry[clip]'`): each operand
 enters as the polygon of its own outline, so curved operands are approximated by inscribed
@@ -306,5 +306,5 @@ from the surface than half their length are not searched.
 
 `diagnose(grid)` reports node overlaps, objects without solid nodes, multiple-hit
 edges, and very short edge distances. These observations do not prove that all
-features are resolved. See the [cut-edge tutorial](/simgeometry/tutorials/grid-intersections-and-cut-edges/)
-and the [sampling/export tutorial](/simgeometry/tutorials/sampling-export-and-diagnostics/).
+features are resolved. See the [cut-edge example](/simgeometry/examples/grid-intersections-and-cut-edges/)
+and the [sampling/export example](/simgeometry/examples/sampling-export-and-diagnostics/).
