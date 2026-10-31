@@ -21,6 +21,11 @@ the end is. Grazing contacts (a step that touches a circle, or slides along an e
 are not crossings. Normals have unit length and point out of the region where
 ``contains`` is true, so they flip for inverted shapes. An open curve (a shape with
 ``closed = False``) has no inside: its normal faces the incoming step.
+
+A :class:`~simgeometry.collection.GeometryCollection` is a set of absorbing surfaces
+(dump plates, calorimeter panels, a duct): each object is tested on its own path
+(analytic where it is), the earliest crossing wins and ``surface`` tells which object
+was hit, so :meth:`Crossings.per_surface` sums the power each surface receives.
 """
 
 from __future__ import annotations
@@ -50,6 +55,10 @@ class Crossings:
     ``hit`` is ``(N,)``; ``fraction`` is ``(N,)`` in ``(0, 1]``; ``point`` and
     ``normal`` are ``(ndim, N)``. Where ``hit`` is false they are NaN. ``exact`` is
     true for analytic results and false for sampled ones.
+
+    For a collection, ``surface`` ``(N,)`` is the index into ``names`` of the object
+    hit first (-1 for none); for a single shape it is 0 where ``hit`` and ``names`` is
+    empty.
     """
 
     hit: Any
@@ -57,6 +66,21 @@ class Crossings:
     point: Any
     normal: Any
     exact: bool
+    surface: Any = None
+    names: tuple[str, ...] = ()
+
+    def per_surface(self, weights=None) -> dict[str, float]:
+        """Sum ``weights`` ``(N,)`` (default 1, a count) of the steps hitting each surface.
+
+        Returns ``{name: total}`` for every object of the collection, in its order.
+        """
+        if not self.names:
+            raise ValueError("per_surface needs the crossings of a GeometryCollection")
+        surface = np.asarray(xp.to_numpy(self.surface))
+        w = np.ones(surface.shape) if weights is None else weights
+        w = np.broadcast_to(np.asarray(xp.to_numpy(w), float), surface.shape)
+        totals = np.bincount(surface[surface >= 0], w[surface >= 0], len(self.names))
+        return dict(zip(self.names, totals.tolist(), strict=True))
 
     def __len__(self) -> int:
         return int(self.hit.shape[0])
@@ -362,6 +386,22 @@ def _first(shape, a, d, samples, iterations):
     return (*_sampled(shape, a, d, samples, iterations), False)
 
 
+def _collection(shape, a, d, samples, iterations):
+    """First crossing over the objects of a collection, with the index of the object."""
+    t = xp.full(a.shape[1], xp.inf)
+    normal = xp.full(a.shape, xp.nan)
+    surface = xp.full(a.shape[1], -1, dtype=xp.int64)
+    exact = True
+    for index, obj in enumerate(shape.objects):
+        t_obj, n_obj, e_obj = _first(obj, a, d, samples, iterations)
+        exact = exact and e_obj
+        closer = t_obj < t
+        t = xp.where(closer, t_obj, t)
+        normal = xp.where(closer[None, :], n_obj, normal)
+        surface = xp.where(closer, index, surface)
+    return t, normal, exact, surface
+
+
 @sp.profile("simgeometry.crossings", tags=_PROFILE_TAGS)
 def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
     """Return the first boundary crossing of each segment ``start[:, i] -> end[:, i]``.
@@ -376,12 +416,23 @@ def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
         raise ValueError("samples must be an integer >= 2")
     if int(iterations) != iterations or iterations < 1:
         raise ValueError("iterations must be a positive integer")
-    t, normal, exact = _first(shape, a, b - a, int(samples), int(iterations))
+    from simgeometry.collection import GeometryCollection
+
+    names = ()
+    if isinstance(shape, GeometryCollection):
+        names = shape.names
+        t, normal, exact, surface = _collection(
+            shape, a, b - a, int(samples), int(iterations)
+        )
+    else:
+        t, normal, exact = _first(shape, a, b - a, int(samples), int(iterations))
+        surface = None
     hit = xp.isfinite(t)
+    surface = xp.where(hit, 0 if surface is None else surface, -1)
     fraction = xp.where(hit, t, xp.nan)
     point = xp.where(hit[None, :], a + xp.where(hit, t, 0.0)[None, :] * (b - a), xp.nan)
     normal = xp.where(hit[None, :], normal, xp.nan)
-    return Crossings(hit, fraction, point, normal, exact)
+    return Crossings(hit, fraction, point, normal, exact, surface, names)
 
 
 def _transformed(shape, a, d, samples, iterations):
