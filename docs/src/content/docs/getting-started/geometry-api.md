@@ -254,6 +254,22 @@ be missed, and their normals are estimated (`exact` is `False`). A crossing at t
 start of a step is not reported, so a particle stopped on a surface is not counted twice;
 grazing contacts are not crossings.
 
+On a `GeometryCollection` each object is tested on its own (exactly where it is) and the
+earliest crossing wins: `hits.surface` is the index into `hits.names` of the object hit
+first (-1 for none), and `hits.per_surface(power)` sums the marker weights each object
+receives, for the power on the dump plates, calorimeter panels and duct of a beamline:
+
+```python
+walls = GeometryCollection(
+    {
+        "dump": Cuboid((1, 0, 0.3), (1, 0.6, 0.02)),
+        "calorimeter": Cuboid((5, 0, 0), (0.02, 0.8, 0.8)).rotated(30.0),
+    }
+)
+hits = walls.crossings(old_positions, positions)
+power = hits.per_surface(weights)  # {"dump": ..., "calorimeter": ...}
+```
+
 For many markers against fixed 2D obstacles, `simgeometry.polygon_objects.polygon_objects(objects)`
 packs the `Polygon` and `Aperture2D` objects (other shapes are left out) into flat arrays,
 and `packed.absorb(positions, alive, start=old_positions)` absorbs, in one compiled pass,
