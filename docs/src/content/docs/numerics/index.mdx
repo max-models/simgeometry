@@ -1,0 +1,119 @@
+---
+title: Overview
+description: The geometry simgeometry computes, from the shapes and their level sets to the crossings, the cut cells and the decomposition of the grid, and what it leaves out.
+sidebar:
+  label: Overview
+---
+
+import MethodCard from '@max-models/starlight-theme/components/MethodCard.astro';
+
+simgeometry is the geometry of the simulation codes, nothing physical: shapes with an inside
+test, a signed distance and a normal; the first crossing of a particle's step with them; the
+cut-cell data of a grid; and the uniform grids and the MPI process grid that splits them.
+Every array query takes component-major points $p$ of shape `(ndim, n)` and runs on NumPy or,
+through cunumpy, on CuPy; the hot loops are compiled Pyccel kernels.
+
+Each equation on these pages is declared on the code that implements it, as a method card, and
+checked by the tests: 19 closed forms (the level sets of the shapes, the Boolean and affine
+level sets, the analytic crossings) against SymPy rules, three discretisations against their
+order of convergence. The pages of the section list the cards module by module; this one shows
+how they fit together.
+
+## Shapes
+
+A shape is a set $S$ with a membership test (`contains_points`) and, where it has an analytic
+description, a level set $\phi$: negative inside, zero on the boundary, the exact Euclidean
+signed distance where `level_set_exact` is true and a bound on it otherwise. An inverted shape is
+the complement, with the sign of $\phi$ flipped
+([shape conventions](/simgeometry/numerics/shapes/)). The level sets are the standard exact
+distances of boxes, segments, capped cones and tori:
+
+- [Line](/simgeometry/numerics/objects-line/), [Circle](/simgeometry/numerics/objects-circle/),
+  [Sphere](/simgeometry/numerics/objects-sphere/);
+- boxes with rounded edges: [Rectangle](/simgeometry/numerics/objects-rectangle/),
+  [Cuboid](/simgeometry/numerics/objects-cuboid/);
+- polygons by the even-odd rule: [Polygon](/simgeometry/numerics/objects-polygon/),
+  [Triangle](/simgeometry/numerics/objects-triangle/),
+  [Aperture2D](/simgeometry/numerics/objects-aperture2d/), and the profile of
+  [Aperture3D](/simgeometry/numerics/objects-aperture3d/) (no level set);
+- [solids of revolution](/simgeometry/numerics/objects-axisymmetric/), whose distance is that
+  of their profile in the half-plane $(s, \rho)$:
+  [Cylinder](/simgeometry/numerics/objects-cylinder/),
+  [Tube](/simgeometry/numerics/objects-tube/), [Cone](/simgeometry/numerics/objects-cone/),
+  [Torus](/simgeometry/numerics/objects-torus/), and the
+  [SlantedTube](/simgeometry/numerics/objects-slanted-tube/), a bound near its cut;
+- [Booleans, affine transforms and sections](/simgeometry/numerics/operations/), whose level
+  sets are bounds, and [collections](/simgeometry/numerics/collection/) of labelled objects.
+
+<MethodCard name="simgeometry.objects.rectangle.Rectangle" headingLevel={3} />
+
+2D shapes also give their boundary as counter-clockwise loops (`outlines`, second order in the
+spacing for curved boundaries) and as [boundary panels](/simgeometry/numerics/panels/) for
+boundary-element solvers.
+
+## Crossings
+
+A particle pusher tests the whole step $a \to b$ of every marker, not only its end, so a fast
+particle cannot pass through a thin plate. [First crossings](/simgeometry/numerics/crossings/)
+are analytic for balls, boxes, polygons, slanted tubes and their affine images; other shapes
+are sampled along the step and refined by Illinois steps on the level set, or bisected on
+membership without one.
+
+<MethodCard name="simgeometry.crossings.crossings" headingLevel={3} />
+
+The compiled [swept absorption](/simgeometry/numerics/polygon-objects/) of 2D markers runs the
+same [segment-edge test](/simgeometry/numerics/kernels-polygon-hits/) against packed polygon
+objects in one pass and returns the object each marker hit first.
+
+## Cut cells
+
+[Edge crossings](/simgeometry/numerics/queries/) locate where the edges of a grid enter a shape
+(Illinois on the level set, bisection otherwise); [cut edges](/simgeometry/numerics/cut-edges/)
+collect them per grid edge for embedded-boundary finite differences.
+[Cut-cell fractions](/simgeometry/numerics/fractions/) give the inside part of every cell by
+midpoint quadrature, and of every edge and face of a Yee grid, with the trace of the surface,
+for conformal field solvers.
+
+## Grids and decomposition
+
+A [grid](/simgeometry/numerics/grid/) has uniform nodes per axis, the first and last on the
+bounds (one spacing short of the upper bound on a periodic axis). The
+[domain decomposition](/simgeometry/numerics/domain-decomposition/) splits it over a process
+grid with row-major ranks: one near-even split of the nodes, shared by the field arrays
+(mpiarray) and the markers, whose owner follows from the subdomain edges. The
+[particle boundaries](/simgeometry/numerics/simulation-domain/) of the box kill, reflect, wrap
+or reinject markers per axis.
+
+## Conventions
+
+Lengths are in the units of the caller. Shapes and grids are axis-aligned unless an axis or a
+matrix is given. Normals have unit length and point out of the region where `contains` is
+true, so they flip for inverted shapes. Fractions along a step lie in $(0, 1]$: a crossing at
+the very start ($t \le 10^{-12}$) is not reported, one exactly at the end is. Boundary
+conventions of the inside tests differ: `Cuboid`, `Line` and the balls are closed; `Rectangle`,
+`Polygon`, `Triangle` and `Aperture3D` use the half-open bounding box $l \le p < u$.
+
+## Not covered
+
+- No winding-number test: self-intersecting polygons follow the even-odd rule.
+- The absorption kernel reports the object only, not the hit point, edge or normal, and tests
+  the end points of long (wrapped) steps only.
+- Sampled crossings miss features thinner than a step over `samples`; Boolean, section and
+  collection level sets are bounds, so `signed_distance` falls back to a sampled mesh for them.
+- `Aperture3D` and function objects have no level set and no analytic crossing; a section of a
+  3D shape only bounds the in-plane distance.
+- Halo exchange, ghost cells and field layouts are mpiarray's; simgeometry hands over the
+  process grid and the halo width.
+- The process-grid search does not balance the axes and never fails.
+- The cut-cell fractions have no single order: the Yee fractions are exact for planes and second
+  order or better for curved surfaces, the midpoint fractions are multiples of $n^{-d}$.
+
+## Verification
+
+Besides the checks of the cards, the tests compare every vectorised inside test with the scalar
+one, the compiled kernels (Pyccel, NumPy, CUDA in emulation) with each other and with the
+shapes, the level sets with exact distances and the Boolean bounds, the analytic crossings with
+dense sampling, the Illinois roots with bisection (fewer than 10 level-set evaluations per edge
+against 50 membership tests), the Yee fractions with planes (exact) and with a circle and a
+sphere (area, perimeter and volume), and the decomposition with brute-force owners and with
+runs on 4 and 6 MPI ranks.

@@ -9,6 +9,7 @@ from numbers import Real
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import method
 
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
@@ -20,7 +21,7 @@ Voltage = float | Callable[[float], float]
 
 @dataclass(frozen=True)
 class DirichletValues:
-    """The object and the voltage at each point of :meth:`GeometryCollection.dirichlet_values`.
+    """The object and the voltage at each point of `GeometryCollection.dirichlet_values`.
 
     ``labels`` are the collection's labels (0 outside every object, ``i`` inside
     ``names[i - 1]``, the last listed object winning in overlaps). ``voltages`` is the
@@ -38,6 +39,17 @@ class DirichletValues:
         return np.isfinite(self.voltages)
 
 
+@method(
+    equations={
+        "labels": r"\ell(p) = \max\{k : p \in S_k\}, \qquad \ell(p) = 0 \text{ outside every object}",
+        "level_set": r"\phi(p) = \min_k \phi_k(p)",
+        "dirichlet": r"V(p, t) = V_{\ell(p)}(t), \qquad \text{NaN where } \ell(p) = 0 \text{ or the object has no voltage}",
+    },
+    assumptions=(
+        r"objects $S_1, \dots, S_N$ in insertion order: the last listed object wins overlaps, also one without a voltage",
+        "the level set, when every object has one, is that of the union: a bound on the distance",
+    ),
+)
 class GeometryCollection(Shape):
     """Named objects; last listed object wins labels in overlaps.
 
@@ -48,9 +60,9 @@ class GeometryCollection(Shape):
 
     ``voltages`` makes named objects conductors: it maps names to a voltage, either a
     number or a function of the time ``t`` (a ramped or RF electrode). Objects without
-    a voltage are not conductors. :meth:`with_voltages` returns the same geometry with
-    other voltages, :meth:`voltages_at` evaluates them at a time and
-    :meth:`dirichlet_values` gives the voltage at points or grid nodes.
+    a voltage are not conductors. `with_voltages` returns the same geometry with
+    other voltages, `voltages_at` evaluates them at a time and
+    `dirichlet_values` gives the voltage at points or grid nodes.
 
     The level set, when every object has one, is the minimum of theirs (the union).
     """
@@ -134,9 +146,9 @@ class GeometryCollection(Shape):
     def dirichlet_values(self, where, *, t=0.0):
         """The label and the voltage of the object at each point, for Dirichlet nodes.
 
-        ``where`` is a :class:`~simgeometry.grid.Grid` (results have its shape) or
-        ``(ndim, n)`` points. Returns :class:`DirichletValues`; a point outside every
-        conductor has a NaN voltage. Overlaps follow :meth:`labels`: the last listed
+        ``where`` is a `Grid` (results have its shape) or
+        ``(ndim, n)`` points. Returns `DirichletValues`; a point outside every
+        conductor has a NaN voltage. Overlaps follow `labels`: the last listed
         object wins, even if it is not a conductor.
         """
         if hasattr(where, "node_points") and hasattr(where, "num_gridpoints"):

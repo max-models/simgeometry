@@ -7,6 +7,19 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A Numerics section in the docs (header and sidebar): an overview of the geometry
+  (`docs/src/content/docs/numerics/index.mdx`, with the main cards) and one page per module,
+  from the shapes to the grids (starlight-theme's `methodcard: { pages: true }`).
+- Method cards (methodcard) on the geometry: the inside tests and level sets of every shape
+  (line, circle, sphere, boxes with fillets, polygons by the even-odd rule, triangles,
+  apertures, the solids of revolution and the slanted tube), the Boolean, affine and section
+  level sets, collections, outlines and boundary panels, the first crossings (analytic and
+  sampled, Illinois), the swept polygon hit test and absorption, the edge crossings, cut edges
+  and cut-cell fractions, the grid, the domain decomposition and the particle boundaries,
+  with their assumptions and references. `test_method_cards.py` checks them: SymPy rules for
+  19 closed forms, the observed order of `outlines`, `crossings` and
+  `intersection_fractions`, and the cards of the docs against those of the code. Adds the
+  `methodcard` dependency.
 - `simgeometry.polygon_objects`: `polygon_objects(objects)` packs `Polygon` and
   `Aperture2D` objects into flat arrays, and `PolygonObjects.absorb(positions, alive,
   start=...)` absorbs the markers that end inside one or whose step crosses one of its
@@ -149,6 +162,8 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The docstrings render on the API pages: code spans instead of the reST roles (`:func:`,
+  `:class:`, `:meth:`, ...).
 - `Cuboid` keeps its bounds as host floats, so its `crossings` work on CuPy.
 - `Polygon.contains_points` with the compiled kernels accepts vertices that are not
   C-ordered (a transposed `(2, n)` array).

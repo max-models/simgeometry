@@ -3,15 +3,41 @@
 from __future__ import annotations
 
 import cunumpy as xp
+from methodcard import Rule, method
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.shapes import Shape1D, _component_major
+from simgeometry.shapes import Shape1D, _component_major, _level_set_at
 
 
+def _line_rules() -> dict:
+    """The SymPy rule of the `Line` level set (for the tests)."""
+    import sympy
+
+    x, c, w = sympy.symbols("x c w", real=True)
+
+    def level_set(x, c, w):
+        return _level_set_at(Line((c,), (2 * w,)), x)
+
+    rule = sympy.Abs(x - c) - w
+    ranges = {"x": (-3.0, 3.0), "c": (-1.0, 1.0), "w": (0.1, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"x \in S \iff l \le x \le u",
+        "level_set": r"\phi(x) = \left|x - \tfrac{l + u}{2}\right| - \tfrac{u - l}{2}",
+    },
+    assumptions=(
+        "closed: both end points are inside",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    symbolic=_line_rules,
+)
 class Line(Shape1D):
     """Represent a line geometry object.
 
-    Its :meth:`level_set` is the exact signed distance to the interval.
+    Its `level_set` is the exact signed distance to the interval.
     """
 
     has_level_set = True
@@ -127,7 +153,7 @@ class Line(Shape1D):
         )
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(1, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(1, n)`` points inside."""
         points = _component_major(points, 1)
         inside = (self.lower_bound[0] <= points[0]) & (points[0] <= self.upper_bound[0])
         return ~inside if self.inverted else inside

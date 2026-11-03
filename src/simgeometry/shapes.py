@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import ConvergenceProblem, method
 
 from simgeometry._level_set import segment_distance
 from simgeometry._profiling import _PROFILE_TAGS
@@ -29,10 +30,29 @@ def _component_major(points: Array, ndim: int) -> Array:
     return points
 
 
+def _level_set_at(shape, *coords: float) -> float:
+    """The level set of ``shape`` at one point, as a float (for the method-card rules)."""
+    point = xp.asarray(np.asarray(coords, dtype=float).reshape(-1, 1))
+    return float(np.asarray(xp.to_numpy(shape.level_set(point)))[0])
+
+
 def _signed_area(loop: np.ndarray) -> float:
     """Shoelace area of a ``(2, n)`` loop: positive when counter-clockwise."""
     x, y = loop
     return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+
+def _outline_problem() -> ConvergenceProblem:
+    """The area enclosed by the outline of a unit circle, against pi."""
+    from simgeometry.objects import Circle
+
+    circle = Circle((0.1, 0.2), 1.0)
+
+    def error(spacing: float) -> float:
+        (loop,) = circle.outlines(spacing)
+        return abs(_signed_area(loop) - np.pi)
+
+    return ConvergenceProblem(error, steps=[0.2, 0.1, 0.05, 0.025])
 
 
 #: A spacing: a length, or a function of ``(2, m)`` points returning ``(m,)`` lengths.
@@ -106,16 +126,16 @@ class Shape(GeometryAPI, ABC):
     bounding box still describes the geometry itself, so consumers must not
     use it to skip points for inverted shapes.
 
-    Shapes with an analytic description also have a :meth:`level_set`
+    Shapes with an analytic description also have a `level_set`
     (``has_level_set``); ``level_set_exact`` says whether it is the exact
     Euclidean signed distance.
     """
 
     _inverted: bool = False
-    #: Whether :meth:`level_set` is defined. Shapes known only through their
+    #: Whether `level_set` is defined. Shapes known only through their
     #: membership test (function objects, ``Aperture3D``) have none.
     has_level_set: bool = False
-    #: Whether :meth:`level_set` is the exact Euclidean signed distance; otherwise
+    #: Whether `level_set` is the exact Euclidean signed distance; otherwise
     #: it is a bound on it.
     level_set_exact: bool = False
 
@@ -164,7 +184,7 @@ class Shape(GeometryAPI, ABC):
     def contains_points(self, points: Array) -> Array:
         """Return a mask of the ``(ndim, n)`` points inside the shape.
 
-        The default calls :meth:`contains` point by point; shapes override it with a
+        The default calls `contains` point by point; shapes override it with a
         vectorised test.
         """
         points = _component_major(points, self.ndim)
@@ -174,14 +194,25 @@ class Shape(GeometryAPI, ABC):
         """The level set of the geometry itself, before inversion."""
         raise NotImplementedError(f"{type(self).__name__} has no level set")
 
+    @method(
+        equations={
+            "inversion": r"\phi_{S^c}(p) = -\phi_S(p)",
+            "bound": r"\phi < 0 \text{ inside}, \quad \phi = 0 \text{ on } \partial S, \quad |\phi(p)| \le \operatorname{dist}(p, \partial S)",
+        },
+        assumptions=(
+            "an inverted shape is the complement of its geometry: `contains_points` is negated and the level set flips sign",
+            "equality in the bound where `level_set_exact` is true: the Euclidean signed distance",
+            "shapes known only by their membership test (`has_level_set` False) raise `NotImplementedError`",
+        ),
+    )
     def level_set(self, points: Array) -> Array:
         """Level-set values of the ``(ndim, n)`` points: negative inside, positive outside.
 
-        The sign follows :meth:`~simgeometry.api.GeometryAPI.signed_distance`, so it
+        The sign follows `signed_distance`, so it
         flips for an inverted shape, and the boundary is the zero level (where
-        :meth:`contains_points` may go either way). The magnitude never exceeds the
+        `contains_points` may go either way). The magnitude never exceeds the
         distance to the boundary; with ``level_set_exact`` it equals it. Values are
-        on the active cunumpy backend, like :meth:`contains_points`. Raises
+        on the active cunumpy backend, like `contains_points`. Raises
         ``NotImplementedError`` when ``has_level_set`` is False.
         """
         if not self.has_level_set:
@@ -193,7 +224,7 @@ class Shape(GeometryAPI, ABC):
     def node_mask(self, grid: Grid) -> np.ndarray:
         """Return a host boolean array of the grid's shape, set at the nodes inside.
 
-        One vectorised :meth:`contains_points` over :meth:`Grid.node_points`, so
+        One vectorised `contains_points` over `Grid.node_points`, so
         the cost is that of a few array passes over the grid.
         """
         inside = self.contains_points(grid.node_points())
@@ -208,7 +239,7 @@ class Shape(GeometryAPI, ABC):
         grid (object): Grid object containing indices and cell sizes.
 
         Returns:
-        list: The :attr:`Grid.indices` of the nodes inside, in their order.
+        list: The `Grid.indices` of the nodes inside, in their order.
         """
         if hasattr(grid, "indices_from_mask"):
             return grid.indices_from_mask(self.node_mask(grid))
@@ -305,9 +336,9 @@ class Shape1D(Shape):
 class Shape2D(Shape):
     """Represent a two-dimensional shape.
 
-    ``exact_outline`` is True for shapes whose :meth:`outlines` are their exact
+    ``exact_outline`` is True for shapes whose `outlines` are their exact
     boundary (polygons), False for curved ones. ``closed`` is False for open curves
-    (:class:`~simgeometry.Polyline`), which enclose no area.
+    (`Polyline`), which enclose no area.
     """
 
     exact_outline: bool = False
@@ -343,17 +374,31 @@ class Shape2D(Shape):
         raise NotImplementedError(f"{type(self).__name__} has no outline")
 
     def _outline_loops(self, max_spacing: Spacing | None) -> list[np.ndarray]:
-        """The loops of :meth:`_corner_loops`, refined; curved shapes override this."""
+        """The loops of `_corner_loops`, refined; curved shapes override this."""
         loops = self._corner_loops()
         if max_spacing is None:
             return loops
         return [_refine_loop(loop, max_spacing, closed=self.closed) for loop in loops]
 
+    @method(
+        equations={
+            "orientation": r"A = \tfrac12 \sum_i (x_i y_{i+1} - x_{i+1} y_i) > 0 \quad \text{(counter-clockwise; otherwise reversed)}",
+            "pieces": r"n = \left\lceil \frac{\ell}{s_{\max}}\,(1 - 10^{-12}) \right\rceil",
+            "graded": r"\int_0^{\ell} \frac{dl}{s(l)} \text{ in equal steps, trapezoidal on 256 intervals}",
+        },
+        order=2,
+        assumptions=(
+            r"loops are $(2, n)$ without a repeated vertex; each edge of length $\ell$ is split into $n$ equal pieces",
+            "curved shapes place every vertex on the curve; a circle gets 100 vertices without `max_spacing`",
+            r"the order is that of the area enclosed by the outline of a circle in $s_{\max}$",
+        ),
+        problem=_outline_problem,
+    )
     def outlines(self, max_spacing: Spacing | None = None) -> list[np.ndarray]:
         """Return the boundary loops of the shape as ``(2, n)`` host arrays.
 
         Each loop is counter-clockwise, without repeating its first vertex. A shape
-        made of several pieces (such as :class:`~simgeometry.Aperture2D`'s two
+        made of several pieces (such as `Aperture2D`'s two
         plates) has one loop per piece. An open curve (``closed`` is False) gives
         its polyline instead, from its first vertex to its last. With
         ``max_spacing``, edges longer than it are split evenly so that no two
@@ -375,9 +420,9 @@ class Shape2D(Shape):
         return [loop[:, ::-1] if _signed_area(loop) < 0.0 else loop for loop in loops]
 
     def boundary_panels(self, max_spacing: Spacing | None = None) -> Panels:
-        """The edges of :meth:`outlines` as panels, for boundary-element solvers.
+        """The edges of `outlines` as panels, for boundary-element solvers.
 
-        See :class:`~simgeometry.panels.Panels` for the arrays and the normal
+        See `Panels` for the arrays and the normal
         convention.
         """
         from simgeometry.panels import boundary_panels
@@ -385,9 +430,9 @@ class Shape2D(Shape):
         return boundary_panels(self, max_spacing)
 
     def _edge_level_set(self, points: Array) -> Array:
-        """Distance to the edges of :meth:`_corner_loops`, negative where the geometry is.
+        """Distance to the edges of `_corner_loops`, negative where the geometry is.
 
-        The sign comes from :meth:`contains_points`, so it agrees with membership
+        The sign comes from `contains_points`, so it agrees with membership
         everywhere off the boundary. This is the exact signed distance when the loops
         are the boundary of the region (a simple polygon, disjoint plates); extra
         edges inside the region only make it a bound.

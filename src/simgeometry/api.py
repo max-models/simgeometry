@@ -153,7 +153,7 @@ class GeometryAPI:
         """First boundary crossing of every segment ``start[:, i] -> end[:, i]``.
 
         ``start`` and ``end`` are ``(ndim, N)``, such as particle positions before and
-        after a step. Returns a :class:`~simgeometry.crossings.Crossings` with ``hit``,
+        after a step. Returns a `Crossings` with ``hit``,
         ``fraction``, ``point`` and ``normal`` (out of the region where ``contains`` is
         true) on the active array backend. Polygons, circles, spheres, boxes and their
         affine transforms are analytic; other shapes sample ``samples`` points per
@@ -254,7 +254,7 @@ class GeometryAPI:
     def yee_fractions(self, grid, **kwargs):
         """Edge-length and face-area fractions of a Yee grid, and the surface's traces.
 
-        Exact for planes; see :func:`simgeometry.fractions.yee_fractions`.
+        Exact for planes; see `simgeometry.fractions.yee_fractions`.
         """
         from simgeometry.fractions import yee_fractions
 

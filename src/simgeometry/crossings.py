@@ -1,6 +1,6 @@
 """First boundary crossings of many segments at once, for particle pushers.
 
-:func:`crossings` takes the start and end of every particle's step as component-major
+`crossings` takes the start and end of every particle's step as component-major
 ``(ndim, N)`` arrays and finds, for each step, the first point where it crosses the
 shape's boundary, entering or leaving. Because the whole step is tested, not only its
 end point, a fast particle cannot pass through a thin plate unnoticed.
@@ -15,17 +15,17 @@ change is refined by Illinois steps on the level set instead, and the normal is 
 gradient.
 
 Conventions: fractions lie in ``(0, 1]``. A crossing at the very start of a step
-(fraction below :data:`START_TOLERANCE`) is not reported, so a particle that stops
+(fraction below `START_TOLERANCE`) is not reported, so a particle that stops
 exactly on a boundary is not counted again on its next step; a crossing exactly at
 the end is. Grazing contacts (a step that touches a circle, or slides along an edge)
 are not crossings. Normals have unit length and point out of the region where
 ``contains`` is true, so they flip for inverted shapes. An open curve (a shape with
 ``closed = False``) has no inside: its normal faces the incoming step.
 
-A :class:`~simgeometry.collection.GeometryCollection` is a set of absorbing surfaces
+A `GeometryCollection` is a set of absorbing surfaces
 (dump plates, calorimeter panels, a duct): each object is tested on its own path
 (analytic where it is), the earliest crossing wins and ``surface`` tells which object
-was hit, so :meth:`Crossings.per_surface` sums the power each surface receives.
+was hit, so `Crossings.per_surface` sums the power each surface receives.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ from typing import Any
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import ConvergenceProblem, Rule, method
 
 from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
@@ -283,7 +284,7 @@ def _inside(shape, a, d, ts):
 def _estimated_normal(shape, points):
     """Unit normal out of the contains-region from membership in many directions.
 
-    The vectorised form of :func:`simgeometry.queries.estimate_surface_normal`: each
+    The vectorised form of `simgeometry.queries.estimate_surface_normal`: each
     point is probed a small distance away in a fan (2D) or sphere (3D) of directions.
     """
     ndim, n = points.shape
@@ -402,6 +403,90 @@ def _collection(shape, a, d, samples, iterations):
     return t, normal, exact, surface
 
 
+def _fraction(shape, start, end) -> float:
+    """The fraction of the first crossing of one step (for the rules of the tests)."""
+    result = crossings(shape, np.reshape(start, (-1, 1)), np.reshape(end, (-1, 1)))
+    return float(np.asarray(xp.to_numpy(result.fraction))[0])
+
+
+def _crossing_rules() -> dict:
+    """The SymPy rules of the analytic crossings: a circle and a box (for the tests)."""
+    import sympy
+
+    from simgeometry.objects import Circle, Rectangle
+
+    x0, y0, x1, y1, r = sympy.symbols("x0 y0 x1 y1 r", real=True)
+    dx, dy = x1 - x0, y1 - y0
+    alpha, beta = dx**2 + dy**2, x0 * dx + y0 * dy
+    gamma = x0**2 + y0**2 - r**2
+    ball = (-beta - sympy.sqrt(beta**2 - alpha * gamma)) / alpha
+    slab = sympy.Max(
+        sympy.Min((-1 - x0) / dx, (1 - x0) / dx),
+        sympy.Min((-0.8 - y0) / dy, (0.8 - y0) / dy),
+    )
+    ranges = {"x0": (-3.0, -2.0), "y0": (-2.0, 2.0), "x1": (-0.5, 0.5)}
+    ranges |= {"y1": (-0.5, 0.5), "r": (0.6, 1.0)}
+
+    def circle(x0, y0, x1, y1, r):
+        return _fraction(Circle((0.0, 0.0), r), (x0, y0), (x1, y1))
+
+    def box(x0, y0, x1, y1):
+        return _fraction(Rectangle((0.0, 0.0), (2.0, 1.6)), (x0, y0), (x1, y1))
+
+    return {
+        "ball": Rule(ball, implementation=circle, ranges=ranges),
+        "slab": Rule(slab, implementation=box, ranges=ranges),
+    }
+
+
+def _sampled_problem() -> ConvergenceProblem:
+    """Bisected crossings of the bore of an `Aperture3D` (no level set), against the exact ones."""
+    from simgeometry.objects import Aperture3D
+
+    radius = 0.5
+    bore = Aperture3D("z", (0.0, 0.0), ((0.0, radius),), (-1, -1, -1), (1, 1, 1))
+    rng = np.random.default_rng(1)
+    y = rng.uniform(-0.4, 0.4, 2000)
+    z = rng.uniform(-0.5, 0.5, 2000)
+    x0 = rng.uniform(-0.3, 0.0, 2000)
+    start = np.stack((x0, y, z))
+    end = np.stack((np.full(2000, 0.9), y, z))
+    exact = (np.sqrt(radius**2 - y**2) - x0) / (0.9 - x0)
+
+    def error(width: float) -> float:
+        iterations = round(-np.log2(width))
+        found = crossings(bore, start, end, samples=16, iterations=iterations)
+        return float(np.mean(np.abs(np.asarray(xp.to_numpy(found.fraction)) - exact)))
+
+    return ConvergenceProblem(error, steps=[2.0**-6, 2.0**-8, 2.0**-10, 2.0**-12])
+
+
+@method(
+    equations={
+        "ball": r"t = \frac{-\beta \mp \sqrt{\beta^2 - \alpha\gamma}}{\alpha}, \qquad \alpha = d\cdot d, \quad \beta = (a - c)\cdot d, \quad \gamma = |a - c|^2 - r^2",
+        "slab": r"t_k^\pm = \frac{l_k - a_k}{d_k}, \frac{u_k - a_k}{d_k}, \qquad t_0 = \max_k \min(t_k^-, t_k^+), \quad t_1 = \min_k \max(t_k^-, t_k^+)",
+        "first": r"t = \begin{cases} t_0 & t_0 \in (10^{-12}, 1] \text{ (entering)} \\ t_1 & t_1 \in (10^{-12}, 1] \text{ (leaving)} \end{cases}, \qquad \text{none if } t_0 \ge t_1",
+        "polygon": r"t = \frac{w \times e}{d \times e}, \quad u = \frac{w \times d}{d \times e}, \qquad w = v_j - a, \quad e = v_i - v_j, \quad a \times b = a_x b_y - a_y b_x",
+        "transformed": r"a' = M^{-1}(a - o), \quad d' = M^{-1} d, \qquad n = \frac{M^{-T} n'}{|M^{-T} n'|}",
+        "bisection": r"[t_\mathrm{lo}, t_\mathrm{hi}] \ni \tfrac{k}{s} \text{ first membership change}, \quad \text{halved } m \text{ times}, \quad t = \tfrac12 (t_\mathrm{lo} + t_\mathrm{hi})",
+        "illinois": r"t = \frac{t_a f_b - t_b f_a}{f_b - f_a}, \qquad f = \phi(a + t d), \quad f_a \leftarrow f_a / 2 \text{ if } a \text{ is kept twice in a row}",
+        "normal": r"n = \frac{\nabla\phi}{|\nabla\phi|}, \qquad \partial_k \phi \approx \frac{\phi(p + \delta e_k) - \phi(p - \delta e_k)}{2\delta}",
+    },
+    order=1,
+    assumptions=(
+        r"each step $a \to b$, $d = b - a$; the first crossing $t \in (0, 1]$, entering or leaving; crossings at $t \le 10^{-12}$ are ignored, at $t = 1$ counted; grazing contacts and zero steps are not crossings",
+        r"analytic (`exact`): balls, boxes and rounded boxes (the hull of the intervals of the inner box widened along one axis and the discs, edge cylinders and corner balls of radius $f$), polygonal 2D shapes ($|d \times e| > 10^{-14}|d||e|$, $u \in [-10^{-12}, 1 + 10^{-12}]$), slanted tubes and affine images of them",
+        r"sampled otherwise: membership at $s + 1$ points $t = k/s$ (`samples` $s = 64$), then Illinois steps on the level set to $2^{-m}$ if it changes sign, else $m$ bisections on membership (`iterations` $m = 40$)",
+        r"normals point out of the region where `contains` is true: radial for balls, $\mp\operatorname{sign}(d_k)\,e_k$ for boxes, $(e_y, -e_x)/|e|$ for counter-clockwise edges; the level-set gradient ($\delta = 10^{-7}$ times the extent) or 64 (2D) or 128 (3D) membership probes for sampled shapes; flipped for inverted shapes",
+        "a `GeometryCollection`: each object on its own path, the earliest crossing wins, the first listed on a tie",
+        r"the order is that of the bisection on membership in the final bracket width $2^{-m}$; the analytic paths are exact and Illinois converges superlinearly (about 1.44)",
+    ),
+    references=(
+        "[Dowell and Jarratt, BIT 11, 168 (1971)](https://doi.org/10.1007/BF01934364)",
+    ),
+    symbolic=_crossing_rules,
+    problem=_sampled_problem,
+)
 @sp.profile("simgeometry.crossings", tags=_PROFILE_TAGS)
 def crossings(shape, start, end, *, samples: int = 64, iterations: int = 40):
     """Return the first boundary crossing of each segment ``start[:, i] -> end[:, i]``.

@@ -2,7 +2,7 @@
 
 A marker in cylindrical coordinates stands for a ring of charge around the axis. Its weight
 is the number of physical particles in the ring. Markers are placed uniformly in ``(x, r)``
-and carry weights proportional to ``r`` (:func:`radial_weight_factors`), so every cell holds
+and carry weights proportional to ``r`` (`radial_weight_factors`), so every cell holds
 about the same number of markers, also next to the axis where beams are extracted.
 """
 

@@ -14,10 +14,10 @@ from simgeometry.utils import vertices_to_bounds
 class Polyline(Shape2D):
     """An open curve through ``vertices``: a thin plate, wire or grid of zero thickness.
 
-    It encloses no area, so :meth:`contains` is always False and it cannot be
+    It encloses no area, so `contains` is always False and it cannot be
     inverted or combined in Boolean shapes. Its geometry is its outline, an open
     polyline from the first vertex to the last (``closed`` is False), which
-    :meth:`~simgeometry.shapes.Shape2D.boundary_panels` and ``crossings()`` use
+    `boundary_panels` and ``crossings()`` use
     directly.
     """
 

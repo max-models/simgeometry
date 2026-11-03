@@ -559,7 +559,7 @@ def show_section_3d(
 ):
     """Draw a plane section in 3D: its source, the cutting plane and the outline.
 
-    The source is drawn translucently through :func:`show_3d` (``opacity``,
+    The source is drawn translucently through `show_3d` (``opacity``,
     ``resolution`` and the other keyword arguments go there), the plane as a
     rectangle covering the source's bounds (or ``bounds``), projected onto it,
     and ``section.outlines(world=True)``, sampled at ``outline_resolution``, as

@@ -1,7 +1,7 @@
 """The Metal version (Apple-silicon GPU, float32) of the ``contains_polygon_2d`` kernel.
 
 ``contains_polygon_2d_pyccel.py`` next to this file is the CPU version with the same
-arguments. One thread per marker (``positions`` is ``(2, N)``); see :mod:`simgeometry.kernels`. The test is
+arguments. One thread per marker (``positions`` is ``(2, N)``); see `simgeometry.kernels`. The test is
 done in float32, so a marker within about 1e-7 (relative) of the boundary may be
 classified differently from the CPU version.
 """

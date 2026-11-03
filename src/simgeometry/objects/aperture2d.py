@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from methodcard import method
 from numpy import ndarray
 
 from simgeometry._types import ConfigValue
@@ -10,6 +11,18 @@ from simgeometry.objects.polygon import Polygon
 from simgeometry.shapes import Shape2D
 
 
+@method(
+    equations={
+        "plates": r"P_\pm = \{(s_k,\ c \pm r_k)\}_k, \qquad S = P_- \cup P_+",
+        "level_set": r"\phi(p) = \pm \min_{\text{edges of } P_\pm} \left| p - a - \operatorname{clip}\!\left(\tfrac{(p - a)\cdot e}{|e|^2}, 0, 1\right) e \right|",
+    },
+    assumptions=(
+        r"the profile $(s_k, r_k)$: $s$ along the beam axis, $r$ across it from the centre line at $c$ = `position`",
+        "each plate is a `Polygon`: even-odd rule inside its half-open bounding box",
+        r"$\phi$ is negative inside a plate and exact while the plates are apart (every $r_k > 0$), a bound otherwise",
+    ),
+    components=(Polygon,),
+)
 class Aperture2D(Shape2D):
     """Two plates mirrored about a beam axis: a slit, or the 2D cut of a round aperture.
 
@@ -17,10 +30,10 @@ class Aperture2D(Shape2D):
     where the other coordinate equals ``position``. ``vertices`` are the plate profile
     as ``(axial, radial)`` pairs: the coordinate along the beam and the distance from
     the centre line. One plate is the polygon at ``position + radial``, the other its
-    mirror image at ``position - radial``. :meth:`slit` builds the common rectangular
+    mirror image at ``position - radial``. `slit` builds the common rectangular
     plates.
 
-    Its :meth:`level_set` is the signed distance to the plates' edges, exact while the
+    Its `level_set` is the signed distance to the plates' edges, exact while the
     plates do not touch (every radial coordinate positive).
     """
 
@@ -153,7 +166,7 @@ class Aperture2D(Shape2D):
         return self._apply_inversion(inside)
 
     def contains_points(self, points: ndarray) -> ndarray:
-        """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(2, n)`` points inside."""
         inside = self._lower_polygon.contains_points(
             points
         ) | self._upper_polygon.contains_points(points)

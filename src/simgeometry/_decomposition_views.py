@@ -1,6 +1,6 @@
 """Views of a domain decomposition: one box (3D) or rectangle (2D) per rank.
 
-Used by :meth:`DomainDecomposition.show_3d` and :meth:`DomainDecomposition.show`.
+Used by `DomainDecomposition.show_3d` and `DomainDecomposition.show`.
 Nothing here communicates; the boxes come from ``subdomain_boxes``.
 """
 

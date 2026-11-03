@@ -8,9 +8,16 @@ from itertools import product
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import Rule, method
 
 from simgeometry._profiling import _PROFILE_TAGS
-from simgeometry.shapes import Shape, _component_major, _refine_loop, _signed_area
+from simgeometry.shapes import (
+    Shape,
+    _component_major,
+    _level_set_at,
+    _refine_loop,
+    _signed_area,
+)
 
 
 def corners(shape):
@@ -54,6 +61,42 @@ def _shapely_ring(ring, *, counter_clockwise):
     return loop
 
 
+def _boolean_rules() -> dict:
+    """The SymPy rules of the `BooleanShape` level sets, of two circles (for the tests)."""
+    import sympy
+
+    from simgeometry.objects import Circle
+
+    x, y = sympy.symbols("x y", real=True)
+    a, b = Circle((-0.3, 0.0), 0.8), Circle((0.4, 0.2), 0.6)
+    phi_a = sympy.sqrt((x + 0.3) ** 2 + y**2) - 0.8
+    phi_b = sympy.sqrt((x - 0.4) ** 2 + (y - 0.2) ** 2) - 0.6
+    ranges = {"x": (-1.5, 1.5), "y": (-1.5, 1.5)}
+
+    def rule(shape, expr):
+        return Rule(
+            expr, implementation=lambda x, y: _level_set_at(shape, x, y), ranges=ranges
+        )
+
+    return {
+        "union": rule(a | b, sympy.Min(phi_a, phi_b)),
+        "intersection": rule(a & b, sympy.Max(phi_a, phi_b)),
+        "difference": rule(a - b, sympy.Max(phi_a, -phi_b)),
+    }
+
+
+@method(
+    equations={
+        "union": r"a \lor b: \quad \phi = \min(\phi_a, \phi_b)",
+        "intersection": r"a \land b: \quad \phi = \max(\phi_a, \phi_b)",
+        "difference": r"a \land \lnot b: \quad \phi = \max(\phi_a, -\phi_b)",
+    },
+    assumptions=(
+        "membership combines the operands' masks; a level set needs one on both operands",
+        "the combined level set is a bound on the distance, not the exact distance (`level_set_exact` is False)",
+    ),
+    symbolic=_boolean_rules,
+)
 class BooleanShape(Shape):
     """A snapshot of a union, intersection, or difference of two shapes.
 
@@ -143,7 +186,7 @@ class BooleanShape(Shape):
         return [_refine_loop(loop, max_spacing) for loop in loops]
 
     def boundary_panels(self, max_spacing=None):
-        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        """The edges of `outlines` as panels; see ``Shape2D.boundary_panels``."""
         from simgeometry.panels import boundary_panels
 
         return boundary_panels(self, max_spacing)
@@ -189,6 +232,39 @@ def _shapely_geometry(shape, max_spacing):
     return shapely.make_valid(geometry)
 
 
+def _transformed_rules() -> dict:
+    """The SymPy rule of the `TransformedShape` level set, a stretched circle (for the tests)."""
+    import sympy
+
+    from simgeometry.objects import Circle
+
+    x, y, sx, sy = sympy.symbols("x y sx sy", positive=True)
+
+    def level_set(x, y, sx, sy):
+        shape = TransformedShape(
+            Circle((0.0, 0.0), 1.0), np.diag([sx, sy]), (0.3, -0.2)
+        )
+        return _level_set_at(shape, x, y)
+
+    local = sympy.sqrt(((x - 0.3) / sx) ** 2 + ((y + 0.2) / sy) ** 2) - 1
+    rule = sympy.Min(sx, sy) * local
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "sx": (0.5, 2.0), "sy": (0.5, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "map": r"p \mapsto M p + o, \qquad p \in T(S) \iff M^{-1}(p - o) \in S",
+        "level_set": r"\phi_T(p) = \sigma_\mathrm{min}(M)\,\phi\big(M^{-1}(p - o)\big)",
+        "bound": r"|M^{-1}x - M^{-1}y| \le \frac{|x - y|}{\sigma_\mathrm{min}(M)}",
+        "normal": r"n_T = \frac{M^{-T} n}{|M^{-T} n|}",
+    },
+    assumptions=(
+        r"$M$ invertible and finite; $\sigma_\mathrm{min}$ its smallest singular value",
+        "the level set stays a bound on the distance; it is exact only for an exact source under a similarity (rigid motion or uniform scaling)",
+    ),
+    symbolic=_transformed_rules,
+)
 class TransformedShape(Shape):
     """Independent affine image of a source, mapping p to matrix @ p + offset.
 
@@ -287,7 +363,7 @@ class TransformedShape(Shape):
         return getattr(self.source, "exact_outline", False)
 
     def boundary_panels(self, max_spacing=None):
-        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        """The edges of `outlines` as panels; see ``Shape2D.boundary_panels``."""
         from simgeometry.panels import boundary_panels
 
         return boundary_panels(self, max_spacing)
@@ -344,6 +420,16 @@ def rotation(shape, angle, *, axis=(0, 0, 1), origin=None):
     return shape.transformed(matrix, origin - matrix @ origin)
 
 
+@method(
+    equations={
+        "plane": r"p = o + B q, \qquad q = B^\mathsf{T}(p - o)",
+        "level_set": r"\phi_\mathrm{section}(q) = \phi(o + B q)",
+    },
+    assumptions=(
+        r"$B$ the orthonormal in-plane basis (columns), $o$ the plane origin; membership is the source's at $o + Bq$",
+        "the source's level set on the plane only bounds the in-plane distance (`level_set_exact` is False)",
+    ),
+)
 class Section(Shape):
     """A membership-preserving section, including holes and disconnected pieces.
 
@@ -457,7 +543,7 @@ class Section(Shape):
         return getattr(self.source, "names", ("inside",))
 
     def _sampled_loops(self, max_spacing, resolution, bounds):
-        """``(loop, closed)`` pairs of :meth:`outlines`, in plane coordinates."""
+        """``(loop, closed)`` pairs of `outlines`, in plane coordinates."""
         from simgeometry.mesh import _find_contours
 
         if self.ndim != 2:
@@ -502,7 +588,7 @@ class Section(Shape):
     def show_3d(self, **kwargs):
         """The section in 3D: its source, the cutting plane and the section outline.
 
-        See :func:`simgeometry.visualization.show_section_3d`; returns Matplotlib
+        See `simgeometry.visualization.show_section_3d`; returns Matplotlib
         axes, or a PyVista plotter for ``backend='pyvista'``.
         """
         from simgeometry.visualization import show_section_3d
