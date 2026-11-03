@@ -6,6 +6,7 @@ from abc import abstractmethod
 
 import cunumpy as xp
 import numpy as np
+from methodcard import method
 
 from simgeometry._types import Array, BoundsLike
 from simgeometry.shapes import Shape3D, _component_major
@@ -19,6 +20,42 @@ def _vector(value: BoundsLike, name: str) -> np.ndarray:
     return vector
 
 
+def _frame(p, centre, axis):
+    """The SymPy axial coordinate and distance from the axis (for the rules of the tests)."""
+    import sympy
+
+    relative = [pk - ck for pk, ck in zip(p, centre)]
+    s = sum(rk * ak for rk, ak in zip(relative, axis))
+    rho = sympy.sqrt(sum((rk - s * ak) ** 2 for rk, ak in zip(relative, axis)))
+    return s, rho
+
+
+def _rectangle_distance(x, y, half_x, half_y):
+    """The SymPy signed distance to the rectangle ``|x| <= half_x, |y| <= half_y``."""
+    import sympy
+
+    dx, dy = sympy.Abs(x) - half_x, sympy.Abs(y) - half_y
+    return sympy.sqrt(sympy.Max(dx, 0) ** 2 + sympy.Max(dy, 0) ** 2) + sympy.Min(
+        sympy.Max(dx, dy), 0
+    )
+
+
+#: An oblique unit axis and a centre for the rules of the solids of revolution.
+_AXIS = (1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0)
+_CENTRE = (0.1, -0.2, 0.3)
+
+
+@method(
+    equations={
+        "frame": r"s = (p - c)\cdot a, \qquad \rho = |p - c - s\,a|",
+        "level_set": r"\phi(p) = \phi_\mathrm{profile}(s, \rho)",
+    },
+    assumptions=(
+        r"unit axis $a$ through the centre $c$; the profile lives in the half-plane $(s, \rho \ge 0)$",
+        "the exact signed distance of the profile there is the exact 3D distance of the solid",
+        "a frame along a coordinate axis takes a cheaper path with the same values",
+    ),
+)
 class AxisymmetricShape(Shape3D):
     """A solid of revolution about an axis through ``midpoint`` along ``axis``.
 
@@ -94,7 +131,7 @@ class AxisymmetricShape(Shape3D):
         self.set_bounding_box(*self._bounds())
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(3, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
         s, rho2 = self._axial_radial(points, squared=True)
         inside = self._inside(s, rho2)

@@ -6,18 +6,60 @@ from operator import add, sub
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._level_set import box_distance
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.shapes import Shape3D, _component_major
+from simgeometry.shapes import Shape3D, _component_major, _level_set_at
 
 
+def _cuboid_rules() -> dict:
+    """The SymPy rule of the `Cuboid` level set, with a fillet (for the tests)."""
+    import sympy
+
+    x, y, z, hx, hy, hz, f = sympy.symbols("x y z hx hy hz f", real=True)
+
+    def level_set(x, y, z, hx, hy, hz, f):
+        cuboid = Cuboid((0.2, -0.1, 0.3), (2 * hx, 2 * hy, 2 * hz), fillet=f)
+        return _level_set_at(cuboid, x, y, z)
+
+    d = (
+        sympy.Abs(x - 0.2) - (hx - f),
+        sympy.Abs(y + 0.1) - (hy - f),
+        sympy.Abs(z - 0.3) - (hz - f),
+    )
+    rule = (
+        sympy.sqrt(sum(sympy.Max(dk, 0) ** 2 for dk in d))
+        + sympy.Min(sympy.Max(*d), 0)
+        - f
+    )
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "z": (-2.0, 2.0)}
+    ranges |= {"hx": (0.5, 1.5), "hy": (0.5, 1.5), "hz": (0.5, 1.5), "f": (0.0, 0.25)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff l \le p \le u \quad (f = 0), \qquad p \in S \iff \phi(p) \le 0 \quad (f > 0)",
+        "level_set": r"\phi(p) = \big|\max(d, 0)\big| + \min\big(\max_k d_k, 0\big) - f, \qquad d = |p - c| - (h - f)",
+    },
+    assumptions=(
+        r"axis-aligned, centre $c$, half sides $h$; $|\cdot|$ and $\max(\cdot, 0)$ of $d$ componentwise",
+        r"the fillet $f \le \min_k h_k$ rounds the edges and corners: the box shrunk by $f$, widened by a ball of radius $f$",
+        "closed: points on the faces are inside",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    references=(
+        "[Quílez, distance functions](https://iquilezles.org/articles/distfunctions/)",
+    ),
+    symbolic=_cuboid_rules,
+)
 class Cuboid(Shape3D):
     """Represent a cuboid geometry object.
 
     ``fillet`` rounds the twelve edges and eight corners with that radius, at most
     half the shortest side, as ``fillet`` rounds the edges of a
-    :class:`~simgeometry.Cylinder`. The :meth:`level_set` is the exact signed
+    `Cylinder`. The `level_set` is the exact signed
     distance, with or without the fillet.
 
     Example
@@ -200,7 +242,7 @@ class Cuboid(Shape3D):
         )
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(3, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
         if self.fillet > 0:
             inside = self._level_set(points) <= 0

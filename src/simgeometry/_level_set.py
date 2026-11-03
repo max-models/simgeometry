@@ -21,7 +21,7 @@ MAX_PAIRS = 4_000_000
 
 
 def has_level_set(shape) -> bool:
-    """Whether ``shape`` provides :meth:`~simgeometry.shapes.Shape.level_set`."""
+    """Whether ``shape`` provides `level_set`."""
     return bool(getattr(shape, "has_level_set", False))
 
 
@@ -76,7 +76,7 @@ def segment_distance(points, starts, ends):
     """Unsigned distance of the ``(2, n)`` points to the nearest of the segments.
 
     ``starts`` and ``ends`` are ``(2, m)``. Points are processed in chunks so that
-    at most :data:`MAX_PAIRS` point-segment pairs are held at once.
+    at most `MAX_PAIRS` point-segment pairs are held at once.
     """
     n, m = points.shape[1], starts.shape[1]
     edge = ends - starts
@@ -178,7 +178,7 @@ def illinois_roots(
 def level_set_gradient(shape, points, spacing: float, array_xp=np):
     """Central-difference gradient ``(ndim, n)`` of ``shape.level_set`` at the points.
 
-    ``array_xp`` is the array module of ``points``, as in :func:`illinois_roots`.
+    ``array_xp`` is the array module of ``points``, as in `illinois_roots`.
     """
 
     def level(p):

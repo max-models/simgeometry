@@ -4,18 +4,56 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 from numpy import ndarray
 
 from simgeometry.kernels.contains_polygon_2d import kernel as contains_polygon_2d
-from simgeometry.shapes import Shape2D, _component_major
+from simgeometry.shapes import Shape2D, _component_major, _level_set_at
 from simgeometry.utils import vertices_to_bounds
 
 
+def _polygon_rules() -> dict:
+    """The SymPy rule of the `Polygon` level set: a rectangle's distance (for the tests)."""
+    import sympy
+
+    x, y = sympy.symbols("x y", real=True)
+    square = Polygon([(-0.4, -0.6), (1.0, -0.6), (1.0, 0.2), (-0.4, 0.2)])
+
+    def level_set(x, y):
+        return _level_set_at(square, x, y)
+
+    dx = sympy.Abs(x - 0.3) - 0.7
+    dy = sympy.Abs(y + 0.2) - 0.4
+    rule = sympy.sqrt(sympy.Max(dx, 0) ** 2 + sympy.Max(dy, 0) ** 2) + sympy.Min(
+        sympy.Max(dx, dy), 0
+    )
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"\text{toggle at edge } v_j v_i \iff (y_i > y) \ne (y_j > y) \;\text{and}\; x < \frac{(x_j - x_i)(y - y_i)}{(y_j - y_i) + 10^{-16}} + x_i",
+        "level_set": r"\phi(p) = \pm \min_\text{edges} \left| p - a - \operatorname{clip}\!\left(\tfrac{(p - a)\cdot e}{|e|^2}, 0, 1\right) e \right|, \qquad e = b - a",
+    },
+    assumptions=(
+        "the even-odd (crossing-number) rule along a ray towards $+x$, not a winding number; $v_j$ is the vertex before $v_i$, the closing edge implied",
+        r"half-open in $y$, so a vertex on the ray is counted once; $10^{-16}$ guards horizontal edges",
+        r"inside also needs the half-open bounding box $l \le p < u$; the compiled kernel `contains_polygon_2d` runs the test",
+        r"$\phi$: the distance to the nearest edge, negative where `contains_points` is true; exact for a simple polygon",
+    ),
+    references=(
+        "W. R. Franklin, PNPOLY - Point Inclusion in Polygon Test",
+        "M. Shimrat, Algorithm 112: Position of point relative to polygon, Commun. ACM 5, 434 (1962)",
+        "[Quílez, 2D distance functions](https://iquilezles.org/articles/distfunctions2d/)",
+    ),
+    symbolic=_polygon_rules,
+)
 class Polygon(Shape2D):
     """Represent a polygon geometry object.
 
-    Its :meth:`level_set` is the exact signed distance: the distance to the nearest
-    edge, negative where :meth:`contains_points` is true. It costs one pass per edge.
+    Its `level_set` is the exact signed distance: the distance to the nearest
+    edge, negative where `contains_points` is true. It costs one pass per edge.
     """
 
     exact_outline = True
@@ -169,7 +207,7 @@ class Polygon(Shape2D):
         return self._apply_inversion(self._contains_polygon(coords))
 
     def contains_points(self, points: ndarray) -> ndarray:
-        """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(2, n)`` points inside."""
         points = xp.asarray(_component_major(points, 2), dtype=float)
         if points.shape[1] == 0:  # the compiled kernels reject empty arrays
             return xp.zeros(0, dtype=bool)

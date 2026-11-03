@@ -35,6 +35,9 @@ jobs:
         examples/parallel-grids/index.html
         api/simgeometry/index.html
         api/simgeometry/grid/index.html
+        numerics/index.html
+        numerics/crossings/index.html
+        numerics/objects-rectangle/index.html
         examples/grids-and-coordinates/grids_and_coordinates.ipynb
         examples/shapes-and-node-masks/shapes_and_node_masks.ipynb
         examples/parallel-grids/parallel_grids.ipynb

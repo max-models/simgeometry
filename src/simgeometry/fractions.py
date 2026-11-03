@@ -6,6 +6,7 @@ from itertools import product
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import method
 
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
@@ -26,6 +27,17 @@ class CellFractions:
     samples_per_axis: int
 
 
+@method(
+    equations={
+        "samples": r"p = x_\mathrm{cell} + \frac{k + \tfrac12}{n}\,h, \qquad k = 0, \dots, n - 1 \text{ per axis}",
+        "fraction": r"f = \frac{\#\{\text{samples inside}\}}{n^{d}} \;\text{(cells)}, \qquad \frac{\#\{\text{inside}\}}{n^{d-1}} \;\text{(faces, normal coordinate on the face)}",
+    },
+    assumptions=(
+        r"midpoint quadrature of the membership indicator, `samples_per_axis` $n$ per axis: a fraction is a multiple of $n^{-d}$, not a reconstructed interface",
+        "features smaller than a sample spacing can be missed",
+        r"periodic axes wrap the sample points and have $N$ cells; face arrays carry both periodic boundary copies",
+    ),
+)
 @sp.profile("simgeometry.cell_fractions", tags=_PROFILE_TAGS)
 def cell_fractions(geometry, grid, *, samples_per_axis=4):
     """Estimate cell and face occupancy using a regular subcell sample lattice."""
@@ -130,7 +142,7 @@ def _all_hits(geometry, start, end, *, samples, max_hits):
     """Every crossing of the segments ``start -> end``, ``(ndim, n)``.
 
     Returns the fractions along each segment, ``(n, k)`` sorted with NaN padding,
-    and the unit normals there, ``(ndim, n, k)``. Repeats :func:`crossings` from just
+    and the unit normals there, ``(ndim, n, k)``. Repeats `crossings` from just
     past the last crossing found.
     """
     from simgeometry.crossings import crossings
@@ -438,13 +450,34 @@ def _face_integrals(
 
 
 @sp.profile("simgeometry.yee_fractions", tags=_PROFILE_TAGS)
+@method(
+    equations={
+        "edge": r"f_\mathrm{edge} = \sum_k (t_{k+1} - t_k)\,\big[\tfrac{t_k + t_{k+1}}{2} \text{ inside}\big] \;\text{(near edges, all crossings } t_k\text{)}",
+        "gauss": r"x_q = \tfrac12 \pm \tfrac12\sqrt{0.6},\ \tfrac12, \qquad w_q = \tfrac{5}{18}, \tfrac{8}{18}, \tfrac{5}{18} \quad \text{per piece between breakpoints}",
+        "face": r"f_\mathrm{face} = \tfrac12 \sum_{\text{directions}} \sum_q w_q\,\ell_\mathrm{inside}(x_q)",
+        "trace": r"T = h_\perp \sum_q w_q \sum_\text{crossings} \frac{|n_\parallel|}{|n_\mathrm{plane}|}, \qquad T_\mathrm{proj} = h_\perp \sum_q w_q \sum_\text{crossings} |n_\parallel| \quad \text{(summed over both directions)}",
+        "trace_sum": r"\hat n_\parallel^2\,d\ell + \hat n_\perp^2\,d\ell = d\ell, \qquad \sum_{\text{families}} h_a \sum T_{\mathrm{proj}, a} = 2\,\text{area}",
+    },
+    assumptions=(
+        "edges whose midpoint is farther than half their length from the surface take the midpoint's membership; near ones get all crossings (repeated `crossings`, at most `max_hits`)",
+        "a face is cut if one of its edges is crossed or its centre is within half a diagonal of the surface; lines across a cut face at the Gauss points of each piece between the face's edge crossings, in both in-plane directions",
+        r"corners: where the in-plane normals of neighbouring lines turn by a sine above 0.05, the tangents' intersection becomes an extra breakpoint",
+        r"fractions within $10^{-12}$ of 0 or 1 are snapped; a wall lying in a grid plane counts as inside (a staircase)",
+        "exact for planes up to the crossings' accuracy; second order or better for curved surfaces (docstring and tests), without a single clean order",
+        "2D or 3D grids with at least one cell per axis",
+    ),
+    references=(
+        "[Yee, IEEE Trans. Antennas Propag. 14, 302 (1966)](https://doi.org/10.1109/TAP.1966.1138693)",
+    ),
+    components=("simgeometry.crossings.crossings",),
+)
 def yee_fractions(geometry, grid, *, samples=64, max_hits=16):
     """Edge-length and face-area fractions of a Yee grid cut by ``geometry``.
 
     For cut-cell (conformal) finite-difference and finite-integration schemes: the
-    edges and faces of the grid of nodes ``grid`` (a :class:`~simgeometry.Grid`, 2D or
+    edges and faces of the grid of nodes ``grid`` (a `Grid`, 2D or
     3D), with the parts of their lengths and areas inside the geometry and the trace of
-    the surface in each face. See :class:`YeeFractions` for the layout and accuracy.
+    the surface in each face. See `YeeFractions` for the layout and accuracy.
     ``samples`` is the sampling of shapes without analytic crossings and ``max_hits``
     the most crossings counted per segment.
     """

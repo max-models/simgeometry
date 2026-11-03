@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import cunumpy as xp
+from methodcard import method
 
 from simgeometry._types import Array, ConfigValue
 from simgeometry.shapes import Shape3D, _component_major
 
 
+@method(
+    equations={
+        "radius": r"r(z) = r_{k-1} + \frac{z - z_{k-1}}{z_k - z_{k-1}}\,(r_k - r_{k-1}), \qquad z_{k-1} < z \le z_k",
+        "opening": r"\text{open} \iff \rho^2 < r_{\min}^2 \;\text{or}\; \rho^2 \le r(z)^2, \qquad \rho^2 = |p_\perp - c|^2",
+        "inside": r"p \in S \iff l \le p < u \;\text{and}\; \lnot\,\text{open} \quad (\text{inverted, the default})",
+    },
+    assumptions=(
+        r"the profile of (axial position $z_k$, radius $r_k$) vertices about the axis through `center_coords`; $k$ from `searchsorted` (side left)",
+        "beyond the first or last vertex the end radius holds",
+        "the inversion applies before the half-open box test: the solid is the material around the opening within the box only",
+        "no level set and no analytic crossing: crossings are sampled",
+    ),
+)
 class Aperture3D(Shape3D):
     """Represent a three-dimensional aperture embedded in a simulation domain."""
 
@@ -309,7 +323,7 @@ class Aperture3D(Shape3D):
         return (not inside) if self.inverted else inside
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorized :meth:`contains`: a mask of the ``(3, n)`` points inside."""
+        """Vectorized `contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
         if points.shape[1] == 0:
             return xp.zeros(0, dtype=bool)

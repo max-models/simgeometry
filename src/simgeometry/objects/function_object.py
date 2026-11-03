@@ -98,7 +98,7 @@ class FunctionObject2D(Shape2D):
         ``resolution`` (samples per axis) and ``bounds`` set the sampling of the
         mask, other keyword arguments style the image. With an inspection option
         (``x``, ``y``, ``z``, ``grid``, ``nodes``, ``normals``) this is
-        :meth:`Shape2D.plot`.
+        `Shape2D.plot`.
         """
         if any(key in kwargs for key in ("x", "y", "z", "grid", "nodes", "normals")):
             return super().plot(ax=ax, **kwargs)
@@ -116,7 +116,7 @@ class FunctionObject3D(Shape3D):
 
     A function object has no level set, so crossings and distances are found by
     sampling its membership. Prefer a primitive where one fits (a torus is
-    :class:`~simgeometry.Torus`, a ring electrode :class:`~simgeometry.Tube`).
+    `Torus`, a ring electrode `Tube`).
 
     Example
     -------

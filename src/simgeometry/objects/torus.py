@@ -4,16 +4,55 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.objects.axisymmetric import AxisymmetricShape, _vector
+from simgeometry.objects.axisymmetric import (
+    _AXIS,
+    _CENTRE,
+    AxisymmetricShape,
+    _frame,
+    _vector,
+)
+from simgeometry.shapes import _level_set_at
 
 
+def _torus_rules() -> dict:
+    """The SymPy rule of the `Torus` level set on an oblique axis (for the tests)."""
+    import sympy
+
+    x, y, z, major, minor = sympy.symbols("x y z major minor", real=True)
+
+    def level_set(x, y, z, major, minor):
+        return _level_set_at(Torus(_CENTRE, major, minor, axis=_AXIS), x, y, z)
+
+    s, rho = _frame((x, y, z), _CENTRE, _AXIS)
+    rule = sympy.sqrt((rho - major) ** 2 + s**2) - minor
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "z": (-2.0, 2.0)}
+    ranges |= {"major": (1.0, 1.5), "minor": (0.2, 0.9)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff (\rho - R)^2 + s^2 \le r^2",
+        "level_set": r"\phi = \sqrt{(\rho - R)^2 + s^2} - r",
+    },
+    assumptions=(
+        r"major radius $R$, minor radius $0 < r \le R$, centre circle in the plane $s = 0$ of the frame of `AxisymmetricShape`",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    references=(
+        "[Quílez, distance functions (torus)](https://iquilezles.org/articles/distfunctions/)",
+    ),
+    components=(AxisymmetricShape,),
+    symbolic=_torus_rules,
+)
 class Torus(AxisymmetricShape):
     """A solid torus: the points within ``minor_radius`` of a circle of ``major_radius``.
 
     The circle is centred at ``midpoint`` in the plane normal to ``axis``. The
-    :meth:`level_set` is the exact signed distance.
+    `level_set` is the exact signed distance.
 
     Example
     -------

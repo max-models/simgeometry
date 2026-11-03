@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import cunumpy as xp
 import numpy as np
 import scope_profiler as sp
+from methodcard import ConvergenceProblem, method
 
 from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
 from simgeometry._profiling import _PROFILE_TAGS
@@ -68,6 +69,48 @@ def level_values(shape, points):
     return np.asarray(xp.to_numpy(shape.level_set(points)), dtype=float)
 
 
+def _bisection_problem() -> ConvergenceProblem:
+    """Edges into the solid around the bore of an `Aperture3D` (no level set)."""
+    from simgeometry.objects import Aperture3D
+
+    radius = 0.5
+    bore = Aperture3D("z", (0.0, 0.0), ((0.0, radius),), (-1, -1, -1), (1, 1, 1))
+    rng = np.random.default_rng(2)
+    y = rng.uniform(-0.4, 0.4, 2000)
+    z = rng.uniform(-0.5, 0.5, 2000)
+    x0 = rng.uniform(-0.3, 0.0, 2000)
+    outside = np.stack((x0, y, z))
+    inside = np.stack((np.full(2000, 0.9), y, z))
+    exact = (np.sqrt(radius**2 - y**2) - x0) / (0.9 - x0)
+
+    def error(width: float) -> float:
+        iterations = round(-np.log2(width))
+        found = intersection_fractions(bore, outside, inside, iterations=iterations)
+        return float(np.mean(np.abs(found - exact)))
+
+    return ConvergenceProblem(error, steps=[2.0**-6, 2.0**-8, 2.0**-10, 2.0**-12])
+
+
+@method(
+    equations={
+        "secant": r"t = \frac{t_a f_b - t_b f_a}{f_b - f_a}, \qquad f(t) = \phi(a + t\,d)",
+        "illinois": r"(t_a, f_a) \leftarrow (t, f) \text{ if } \operatorname{sign} f = \operatorname{sign} f_a, \text{ else } (t_b, f_b) \leftarrow (t, f); \quad f_b \leftarrow f_b/2 \;(f_a \leftarrow f_a/2) \text{ if } b \;(a) \text{ is kept twice in a row}",
+        "converged": r"|f| \le \nu = \varepsilon\,\big(\max_k|a_k| + \max_k|d_k|\big) \;\text{or}\; |t' - t| \le \tau \;\text{or}\; |t_b - t_a| \le \tau, \qquad \tau = 2^{-m}",
+        "bisection": r"\min\!\Big(m, \max\big(1, \big\lceil \log_2(w\,2^{m}) \big\rceil\big)\Big) \text{ halvings on membership}, \qquad t = t_\mathrm{hi}",
+    },
+    order=1,
+    assumptions=(
+        r"each edge from an outside point $a$ to an inside point $a + d$ brackets one crossing (`ValueError` otherwise); the fraction is measured from the outside end and not clamped",
+        r"with a level set and $\phi(a) > 0 > \phi(a + d)$: at most 12 Illinois steps (`SECANT_STEPS`), superlinear (order about 1.44 for a simple root)",
+        r"the other edges, and those Illinois left unsettled with their narrowed bracket of width $w$, are bisected on membership and return the inside end $t_\mathrm{hi}$",
+        "`wrap` maps periodic images into the domain before every membership or level-set call",
+        r"the order is that of the bisection in the final bracket width $2^{-m}$ (`iterations` $m = 48$)",
+    ),
+    references=(
+        "[Dowell and Jarratt, BIT 11, 168 (1971)](https://doi.org/10.1007/BF01934364)",
+    ),
+    problem=_bisection_problem,
+)
 def intersection_fractions(obj, outside, inside, *, iterations=48, wrap=None):
     """Locate bracketed outside-to-inside edge crossings; return raw, unclamped fractions.
 

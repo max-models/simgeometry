@@ -1,11 +1,11 @@
 """2D objects made of polygons, packed for the swept absorption kernel.
 
-:func:`polygon_objects` packs the objects the ``absorb_polygons_2d`` kernel can
-take (a :class:`~simgeometry.objects.polygon.Polygon`, an
-:class:`~simgeometry.objects.aperture2d.Aperture2D`: the union of its two
+`polygon_objects` packs the objects the ``absorb_polygons_2d`` kernel can
+take (a `Polygon`, an
+`Aperture2D`: the union of its two
 plates) into flat arrays, so markers are tested against every object in one
 pass instead of one containment call per object and sample along the step.
-:meth:`PolygonObjects.absorb` runs the kernel: a marker is absorbed when it
+`PolygonObjects.absorb` runs the kernel: a marker is absorbed when it
 ends inside an object or when its straight step from ``start`` crosses one of
 the object's edges, exactly (no sampling), so a plate thinner than the step is
 not jumped over. The object met first along the step takes the marker.
@@ -29,6 +29,7 @@ from typing import Any
 
 import cunumpy as xp
 import numpy as np
+from methodcard import method
 
 from simgeometry.objects.aperture2d import Aperture2D
 from simgeometry.objects.polygon import Polygon
@@ -93,6 +94,20 @@ class PolygonObjects:
             self.boxed,
         )
 
+    @method(
+        equations={
+            "sweep": r"\text{sweep} \iff |x_1 - x_0|^2 \le \ell_\mathrm{sweep}^2, \qquad \ell_\mathrm{sweep} > 0",
+            "first_object": r"k^* = \operatorname*{arg\,min}_k \tau_k, \quad \tau_k < 2; \qquad \text{alive} \leftarrow \text{false if } k^* \text{ exists}",
+        },
+        assumptions=(
+            r"objects in slot order; an object $k$ with `boxed[k]` is skipped when the axis-aligned box of the step misses its bounds (an inverted object is solid outside its box and never skipped)",
+            r"$\tau_k$ from `object_hit_times`: a crossing in $(0, 1]$, 0 for an end inside, 2 for no hit; strictly smaller wins, so the lower slot wins a tie, and an end inside beats every crossing",
+            "without a start, or for a step longer than `sweep_length` (wrapped or reinjected), only the end counts",
+            "packed: `Polygon` and the two plates of `Aperture2D`; other objects are left out",
+            "returns the object only, not the hit point, edge or normal (those come from `crossings`); cost O(edges) per marker and unboxed object",
+        ),
+        components=("simgeometry.kernels.polygon_hits.object_hit_times",),
+    )
     def absorb(
         self,
         positions: Array,

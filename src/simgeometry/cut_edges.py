@@ -7,6 +7,7 @@ from functools import cached_property
 
 import numpy as np
 import scope_profiler as sp
+from methodcard import method
 
 from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
@@ -188,7 +189,7 @@ class BracketedEdgeGeometry:
     def show_3d(self, **kwargs):
         """Draw the objects, the crossings and optionally normals and solid nodes.
 
-        Takes the keyword arguments of :meth:`CutEdges.show_3d`; several objects
+        Takes the keyword arguments of `CutEdges.show_3d`; several objects
         are drawn as one collection.
         """
         from simgeometry.collection import GeometryCollection
@@ -208,6 +209,19 @@ class BracketedEdgeGeometry:
 
 
 @sp.profile("simgeometry.bracketed_edge_geometry", tags=_PROFILE_TAGS)
+@method(
+    equations={
+        "solid": r"\text{solid} = \bigcup_k M_k, \qquad \text{owner}(i) = \max\{k : i \in M_k\}",
+        "cut": r"f_{(a, \pm)}(i) = \text{fraction from fluid node } i \text{ towards its solid neighbour } i \pm e_a, \quad \text{NaN where uncut}",
+    },
+    assumptions=(
+        "node masks $M_k$ per object, the last listed object owning an overlap",
+        "every edge from a fluid node to a solid neighbour is one outside-to-inside bracket, located by `intersection_fractions` against the neighbour's owner",
+        "periodic axes roll the masks and wrap the probe points",
+        "no boundary values, stencil weights or minimum-distance clamps",
+    ),
+    components=("simgeometry.queries.intersection_fractions",),
+)
 def bracketed_edge_geometry(
     grid, objects, *, spacing=None, object_masks=None, periodic=None
 ):
@@ -423,6 +437,16 @@ class CutEdges:
 
 
 @sp.profile("simgeometry.cut_edges", tags=_PROFILE_TAGS)
+@method(
+    equations={
+        "hits": r"t \in [0, 1]: \text{ all hits of } x_i + t\,h\,e_a, \text{ merged closer than } 10^{-10}",
+        "entering": r"\text{entering} = [p(t + \delta) \in S] - [p(t - \delta) \in S], \qquad \delta = \min(10^{-7}, \Delta t / 4)",
+    },
+    assumptions=(
+        "the diagnostic path: every edge of the grid, all hits of `intersect_segment`, sorted by axis, lower node and fraction",
+        "analytic for primitives on nonperiodic edges, sampled (`samples` per edge) otherwise; features narrower than a sampling interval can be missed",
+    ),
+)
 def cut_edges(geometry, grid, *, samples=64, tolerance=1e-10):
     """Find all surface crossings, including objects between two fluid nodes.
 

@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
   "cunumpy>=0.6.2",
   "maybempi>=0.1",
+  "methodcard",
   "mpiarray>=0.1.0",
   "numpy",
   "scope-profiler>=0.7.5",
@@ -53,7 +54,7 @@ optional-dependencies.mpi = [ "mpi4py" ]
 optional-dependencies.pyccel = [ "pyccel>2.0" ]
 optional-dependencies.gpu = [ "cupy-cuda12x" ]
 optional-dependencies.metal = [ "mlx; sys_platform == 'darwin' and platform_machine == 'arm64'" ]
-optional-dependencies.test = [ "mpi4py", "pytest", "pytest-cov", "simgeometry[clip]" ]
+optional-dependencies.test = [ "methodcard[symbolic]", "mpi4py", "pytest", "pytest-cov", "simgeometry[clip]" ]
 urls.Source = "https://github.com/max-models/simgeometry"
 
 [project.entry-points."scope_profiler.opt_in_tags"]
@@ -87,6 +88,7 @@ reportMissingImports = "error"
 ini_options.pythonpath = [ "src" ]
 ini_options.testpaths = [ "src" ]
 ini_options.addopts = "-ra"
+ini_options.markers = [ "convergence: an order-of-accuracy test of a method card" ]
 
 [tool.coverage]
 run.omit = [ "*/tests/*" ]
@@ -98,6 +100,7 @@ report.show_missing = true
 [tool.uv.sources]
 cunumpy = { git = "https://github.com/max-models/cunumpy", branch = "devel" }
 maybempi = { git = "https://github.com/max-models/maybempi", branch = "devel" }
+methodcard = { git = "https://github.com/max-models/methodcard", branch = "devel" }
 mpiarray = { git = "https://github.com/max-models/mpiarray", branch = "devel" }
 plasma-plots = { git = "https://github.com/max-models/plasma-plots", branch = "devel" }
 scope-profiler = { git = "https://github.com/max-models/scope-profiler", branch = "devel" }

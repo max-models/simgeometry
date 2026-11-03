@@ -4,17 +4,57 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._level_set import rectangle_distance
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.objects.axisymmetric import CappedAxisymmetricShape
+from simgeometry.objects.axisymmetric import (
+    _AXIS,
+    _CENTRE,
+    AxisymmetricShape,
+    CappedAxisymmetricShape,
+    _frame,
+    _rectangle_distance,
+)
+from simgeometry.shapes import _level_set_at
 
 
+def _cylinder_rules() -> dict:
+    """The SymPy rule of the `Cylinder` level set on an oblique axis (for the tests)."""
+    import sympy
+
+    x, y, z, radius, half, f = sympy.symbols("x y z radius half f", real=True)
+
+    def level_set(x, y, z, radius, half, f):
+        start = np.subtract(_CENTRE, np.multiply(half, _AXIS))
+        end = np.add(_CENTRE, np.multiply(half, _AXIS))
+        return _level_set_at(Cylinder(start, end, radius, fillet=f), x, y, z)
+
+    s, rho = _frame((x, y, z), _CENTRE, _AXIS)
+    rule = _rectangle_distance(rho, s, radius - f, half - f) - f
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "z": (-2.0, 2.0)}
+    ranges |= {"radius": (0.5, 1.5), "half": (0.5, 1.5), "f": (0.0, 0.25)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff |s| \le L,\; \rho^2 \le R^2 \quad (f = 0), \qquad p \in S \iff \phi(p) \le 0 \quad (f > 0)",
+        "level_set": r"\phi = \phi_\mathrm{rect}(\rho, s;\ R - f, L - f) - f, \qquad \phi_\mathrm{rect}(x, y; h_x, h_y) = \big|\max(d, 0)\big| + \min(\max(d_x, d_y), 0), \quad d = (|x| - h_x, |y| - h_y)",
+    },
+    assumptions=(
+        r"half length $L$, radius $R$, in the frame $(s, \rho)$ of `AxisymmetricShape`",
+        r"the fillet $f \le \min(R, L)$ rounds the two circular edges",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    components=(AxisymmetricShape,),
+    symbolic=_cylinder_rules,
+)
 class Cylinder(CappedAxisymmetricShape):
     """A solid circular cylinder with its axis from ``start`` to ``end``.
 
     ``fillet`` rounds the two circular edges with that radius (at most the radius
-    and half the length). The :meth:`level_set` is the exact signed distance, with
+    and half the length). The `level_set` is the exact signed distance, with
     or without the fillet.
 
     Example

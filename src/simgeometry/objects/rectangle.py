@@ -6,22 +6,71 @@ from operator import add, sub
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._level_set import box_distance
 from simgeometry._types import Array, ConfigValue
-from simgeometry.shapes import Shape2D, Spacing, _component_major, _distribute
+from simgeometry.shapes import (
+    Shape2D,
+    Spacing,
+    _component_major,
+    _distribute,
+    _level_set_at,
+)
 
 #: Vertices per rounded corner of an outline without ``max_spacing``.
 CORNER_POINTS = 25
 
 
+def _rectangle_rules() -> dict:
+    """The SymPy rule of the `Rectangle` level set, with a fillet (for the tests)."""
+    import sympy
+
+    x, y, hx, hy, f = sympy.symbols("x y hx hy f", real=True)
+
+    def level_set(x, y, hx, hy, f):
+        return _level_set_at(Rectangle((0.2, -0.1), (2 * hx, 2 * hy), fillet=f), x, y)
+
+    dx = sympy.Abs(x - 0.2) - (hx - f)
+    dy = sympy.Abs(y + 0.1) - (hy - f)
+    rule = (
+        sympy.sqrt(sympy.Max(dx, 0) ** 2 + sympy.Max(dy, 0) ** 2)
+        + sympy.Min(sympy.Max(dx, dy), 0)
+        - f
+    )
+    ranges = {
+        "x": (-2.0, 2.0),
+        "y": (-2.0, 2.0),
+        "hx": (0.5, 1.5),
+        "hy": (0.5, 1.5),
+        "f": (0.0, 0.25),
+    }
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff l \le p < u \quad (f = 0), \qquad p \in S \iff \phi(p) \le 0 \quad (f > 0)",
+        "level_set": r"\phi(p) = \big|\max(d, 0)\big| + \min\big(\max_k d_k, 0\big) - f, \qquad d = |p - c| - (h - f)",
+    },
+    assumptions=(
+        r"axis-aligned, centre $c$, half sides $h$; $|\cdot|$ and $\max(\cdot, 0)$ of $d$ componentwise",
+        r"the fillet $f \le \min_k h_k$ rounds the corners: the box shrunk by $f$, widened by a disc of radius $f$",
+        "without a fillet the inside test is the half-open box of `BoundingBox.contains`",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    references=(
+        "[Quílez, distance functions](https://iquilezles.org/articles/distfunctions/)",
+    ),
+    symbolic=_rectangle_rules,
+)
 class Rectangle(Shape2D):
     """Represent a rectangular geometry object.
 
     ``fillet`` rounds the four corners with that radius, at most half the shorter
     side; at half the shorter side the rectangle is a stadium (a circle for a
     square). Rounded corners keep the surface field of an electrode bounded. The
-    :meth:`level_set` is the exact signed distance, with or without the fillet.
+    `level_set` is the exact signed distance, with or without the fillet.
 
     Example
     -------
@@ -141,7 +190,7 @@ class Rectangle(Shape2D):
         """The straight edges and the quarter circles of the corners, counter-clockwise.
 
         Without ``max_spacing`` each edge is one segment and each corner has
-        :data:`CORNER_POINTS` vertices on its arc.
+        `CORNER_POINTS` vertices on its arc.
         """
         if self.fillet == 0:
             return super()._outline_loops(max_spacing)
@@ -203,7 +252,7 @@ class Rectangle(Shape2D):
         )
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(2, n)`` points inside."""
         points = _component_major(points, 2)
         if self.fillet > 0:
             inside = self._level_set(points) <= 0

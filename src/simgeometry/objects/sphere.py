@@ -3,15 +3,41 @@
 from __future__ import annotations
 
 import cunumpy as xp
+from methodcard import Rule, method
 
 from simgeometry._types import Array, ConfigValue
-from simgeometry.shapes import Shape3D, _component_major
+from simgeometry.shapes import Shape3D, _component_major, _level_set_at
 
 
+def _sphere_rules() -> dict:
+    """The SymPy rule of the `Sphere` level set (for the tests)."""
+    import sympy
+
+    x, y, z, r = sympy.symbols("x y z r", real=True)
+
+    def level_set(x, y, z, r):
+        return _level_set_at(Sphere((0.3, -0.2, 0.1), r), x, y, z)
+
+    rule = sympy.sqrt((x - 0.3) ** 2 + (y + 0.2) ** 2 + (z - 0.1) ** 2) - r
+    ranges = {"x": (-3.0, 3.0), "y": (-3.0, 3.0), "z": (-3.0, 3.0), "r": (0.2, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff |p - c|^2 \le r^2",
+        "level_set": r"\phi(p) = |p - c| - r",
+    },
+    assumptions=(
+        "closed: points on the sphere are inside",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    symbolic=_sphere_rules,
+)
 class Sphere(Shape3D):
     """Represent a spherical geometry object.
 
-    Its :meth:`level_set` is the exact signed distance ``|p - midpoint| - radius``.
+    Its `level_set` is the exact signed distance ``|p - midpoint| - radius``.
     """
 
     has_level_set = True
@@ -171,7 +197,7 @@ class Sphere(Shape3D):
         return (not inside) if self.inverted else inside
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(3, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
         midpoint = xp.asarray(self.midpoint, dtype=float)[:, None]
         distance_squared = xp.sum((points - midpoint) ** 2, axis=0)

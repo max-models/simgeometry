@@ -4,18 +4,62 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._level_set import rectangle_distance
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.objects.axisymmetric import CappedAxisymmetricShape
+from simgeometry.objects.axisymmetric import (
+    _AXIS,
+    _CENTRE,
+    AxisymmetricShape,
+    CappedAxisymmetricShape,
+    _frame,
+    _rectangle_distance,
+)
+from simgeometry.shapes import _level_set_at
 
 
+def _tube_rules() -> dict:
+    """The SymPy rule of the `Tube` level set on an oblique axis (for the tests)."""
+    import sympy
+
+    x, y, z, inner, outer, half, f = sympy.symbols(
+        "x y z inner outer half f", real=True
+    )
+
+    def level_set(x, y, z, inner, outer, half, f):
+        start = np.subtract(_CENTRE, np.multiply(half, _AXIS))
+        end = np.add(_CENTRE, np.multiply(half, _AXIS))
+        return _level_set_at(Tube(start, end, inner, outer, fillet=f), x, y, z)
+
+    s, rho = _frame((x, y, z), _CENTRE, _AXIS)
+    middle, thickness = (inner + outer) / 2, (outer - inner) / 2
+    rule = _rectangle_distance(rho - middle, s, thickness - f, half - f) - f
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "z": (-2.0, 2.0)}
+    ranges |= {"inner": (0.3, 0.6), "outer": (0.8, 1.5), "half": (0.5, 1.5)}
+    ranges |= {"f": (0.0, 0.1)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff |s| \le L,\; r_i^2 \le \rho^2 \le r_o^2 \quad (f = 0), \qquad p \in S \iff \phi(p) \le 0 \quad (f > 0)",
+        "level_set": r"\phi = \phi_\mathrm{rect}\!\left(\rho - \tfrac{r_i + r_o}{2}, s;\ \tfrac{r_o - r_i}{2} - f, L - f\right) - f",
+    },
+    assumptions=(
+        r"half length $L$, $0 < r_i < r_o$, in the frame $(s, \rho)$ of `AxisymmetricShape`; $\phi_\mathrm{rect}$ the 2D box distance as for `Cylinder`",
+        r"the fillet $f \le \min(\tfrac{r_o - r_i}{2}, L)$ rounds the four circular edges",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    components=(AxisymmetricShape,),
+    symbolic=_tube_rules,
+)
 class Tube(CappedAxisymmetricShape):
     """A hollow cylinder between ``inner_radius`` and ``outer_radius``, from ``start`` to ``end``.
 
     A short tube is a ring electrode; a long one a drift tube or a chamber wall.
     ``fillet`` rounds its four circular edges (at most half the wall thickness and
-    half the length). The :meth:`level_set` is the exact signed distance, with or
+    half the length). The `level_set` is the exact signed distance, with or
     without the fillet.
 
     Example

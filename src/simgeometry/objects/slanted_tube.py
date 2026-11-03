@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
 from simgeometry.objects.axisymmetric import _vector
-from simgeometry.shapes import Shape3D, _component_major
+from simgeometry.shapes import Shape3D, _component_major, _level_set_at
 
 
 def _orthonormal(axis: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -27,6 +28,45 @@ def _plane_roots(w_s, d_s, w_n, d_n):
     return [(t_start, moving_s, 0, "start"), (t_cut, moving_n, 1, "cut")]
 
 
+def _slanted_tube_rules() -> dict:
+    """The SymPy rule of the `SlantedTube` level set, cut about the x axis (for the tests)."""
+    import sympy
+
+    x, y, z, inner, outer, length, angle = sympy.symbols(
+        "x y z inner outer length angle", real=True
+    )
+
+    def level_set(x, y, z, inner, outer, length, angle):
+        normal = (0.0, -np.sin(angle), np.cos(angle))
+        tube = SlantedTube((0, 0, 0), (0, 0, length), inner, outer, normal)
+        return _level_set_at(tube, x, y, z)
+
+    rho = sympy.sqrt(x**2 + y**2)
+    radial = sympy.Max(inner - rho, rho - outer)
+    uncut = sympy.sqrt(sympy.Max(radial, 0) ** 2 + sympy.Max(-z, 0) ** 2) + sympy.Min(
+        sympy.Max(radial, -z), 0
+    )
+    above = -y * sympy.sin(angle) + (z - length) * sympy.cos(angle)
+    rule = sympy.Max(uncut, above)
+    ranges = {"x": (-1.0, 1.0), "y": (-1.0, 1.0), "z": (-0.5, 2.5)}
+    ranges |= {"inner": (0.05, 0.25), "outer": (0.3, 0.6), "length": (1.0, 2.0)}
+    ranges |= {"angle": (0.0, 0.8)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "frame": r"w = p - p_\mathrm{start}, \qquad s = w\cdot a, \qquad \rho = |w - s\,a|, \qquad \eta = w\cdot n - L\,(n\cdot a)",
+        "inside": r"p \in S \iff s \ge 0,\; \eta \le 0,\; r_i \le \rho \le r_o",
+        "level_set": r"\phi = \max(\phi_\mathrm{tube}, \eta), \qquad \phi_\mathrm{tube} = \big|(\max(\varrho, 0), \max(-s, 0))\big| + \min(\max(\varrho, -s), 0), \qquad \varrho = \max(r_i - \rho, \rho - r_o)",
+    },
+    assumptions=(
+        r"unit axis $a$ from `start`, length $L$ to the centre of the cut; cut plane through `end` with unit outward normal $n$, $n\cdot a > 0$",
+        r"the cut misses the start face: $r_o \tan\theta < L$; a rod ($r_i = 0$) has $\varrho = \rho - r_o$",
+        r"$\phi$, the larger of the distances to the half-infinite tube and to the cut plane, is exact away from the rim of the cut and a bound near it",
+    ),
+    symbolic=_slanted_tube_rules,
+)
 class SlantedTube(Shape3D):
     """A tube from ``start`` to ``end`` whose end at ``end`` is cut by a slanted plane.
 
@@ -34,13 +74,13 @@ class SlantedTube(Shape3D):
     ``start`` to ``end``; ``inner_radius = 0`` gives a solid rod. The end at
     ``start`` is the flat face normal to the axis. The end at ``end`` is the plane
     through ``end`` with the outward normal ``cut_normal``, tilted from the axis by
-    :attr:`cut_angle`, like the mouth of an oven nozzle cut at 45°. ``length`` is
+    `cut_angle`, like the mouth of an oven nozzle cut at 45°. ``length`` is
     measured along the axis to the centre of the cut, and the cut may not reach the
     start face (``outer_radius * tan(cut_angle) < length``).
 
-    The :meth:`level_set` is the larger of the signed distance to the tube without
+    The `level_set` is the larger of the signed distance to the tube without
     the cut and to the cut plane: exact on the faces and inside away from the cut's
-    rim, a bound elsewhere (``level_set_exact`` is False). :func:`~simgeometry.crossings`
+    rim, a bound elsewhere (``level_set_exact`` is False). `crossings`
     are analytic.
 
     Example
@@ -183,7 +223,7 @@ class SlantedTube(Shape3D):
         return s, rho, above
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(3, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(3, n)`` points inside."""
         points = _component_major(points, 3)
         s, rho, above = self._coordinates(points)
         inside = (
