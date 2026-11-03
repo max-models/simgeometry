@@ -146,6 +146,8 @@ and where `level_set_exact` is true it is the Euclidean signed distance.
 | `Aperture2D` | exact while the plates do not touch |
 | `Cylinder`, `Tube`, `Cone`, `Torus` (any axis, with or without fillets) | exact |
 | `SlantedTube` | the larger of the uncut tube's and the cut plane's: exact on the faces, a bound near the cut's rim |
+| `Helix` | the distance from the centreline minus the wire's radius: exact within a wire radius of the wire, a bound farther away |
+| `PolarRepeat` (copies about an axis) | the source's, the least over the point's sector and its two neighbours: a bound |
 | `a \| b`, `a & b`, `a - b` | `min(a, b)`, `max(a, b)`, `max(a, -b)`: a bound, not exact |
 | rotations, translations, reflections, uniform scaling | exact if the source is |
 | nonuniform scaling, shears | the source's times the smallest stretch: a bound |

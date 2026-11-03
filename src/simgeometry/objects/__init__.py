@@ -9,6 +9,7 @@ from simgeometry.objects.cone import Cone
 from simgeometry.objects.cuboid import Cuboid
 from simgeometry.objects.cylinder import Cylinder
 from simgeometry.objects.function_object import FunctionObject2D, FunctionObject3D
+from simgeometry.objects.helix import Helix
 from simgeometry.objects.line import Line
 from simgeometry.objects.polygon import Polygon
 from simgeometry.objects.polyline import Polyline
@@ -31,6 +32,7 @@ __all__ = [
     "Cylinder",
     "FunctionObject2D",
     "FunctionObject3D",
+    "Helix",
     # 1D objects
     "Line",
     "Polygon",

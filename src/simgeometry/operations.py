@@ -397,6 +397,106 @@ class TransformedShape(Shape):
         return super().evaluate(*args, quantity=quantity, **kwargs)
 
 
+@method(
+    equations={
+        "fold": r"\varphi' = \varphi - k\,\Delta, \quad k = \operatorname{round}(\varphi / \Delta), \quad \Delta = \frac{2\pi}{N}",
+        "level_set": r"\phi_N(p) = \min_{j \in \{k - 1, k, k + 1\}} \phi\big(R_{-j\Delta}\, p\big)",
+    },
+    assumptions=(
+        r"$N$ copies of the source rotated about the axis by multiples of $\Delta$; $\varphi$ the point's angle about the axis from the reference direction (the unit vector normal to the axis closest to x)",
+        r"the source lies within its sector $|\varphi| < \Delta / 2$ (copies do not overlap), so membership is the source's at the point rotated into the first sector",
+        r"the level set is the smallest over the point's sector and its two neighbours: a bound on the distance where the nearest copy is among them (copies away from the axis)",
+    ),
+)
+class PolarRepeat(Shape):
+    """``count`` copies of a 3D shape rotated about an axis, evaluated as one.
+
+    Copy ``j`` is the source rotated by ``j * 360 / count`` degrees about ``axis``
+    through ``origin``. A point is mapped into the first copy's sector (its angle
+    folded to ``|phi| < 180 / count`` degrees) and tested against the source alone,
+    so the cost does not grow with ``count`` as a union of rotated copies would: the
+    24 slits of a Faraday shield are ``tube - PolarRepeat(slit, 24)``. The source must
+    lie within its sector, centred on the reference direction (the unit vector
+    normal to the axis closest to x, as `Helix` uses).
+    """
+
+    level_set_exact = False
+
+    def __init__(self, source, count, *, axis=(0.0, 0.0, 1.0), origin=None):
+        if source.ndim != 3:
+            raise ValueError("PolarRepeat needs a 3D shape")
+        if int(count) != count or count < 1:
+            raise ValueError("count must be a positive integer")
+        axis = np.asarray(axis, float)
+        if axis.shape != (3,) or not np.all(np.isfinite(axis)) or not np.any(axis):
+            raise ValueError("The axis must be a finite nonzero 3-vector")
+        self.source = copy.deepcopy(source)
+        self.count = int(count)
+        self.axis = axis / np.linalg.norm(axis)
+        self.origin = np.zeros(3) if origin is None else np.asarray(origin, float)
+        helper = np.eye(3)[0] if abs(self.axis[0]) < 0.9 else np.eye(3)[1]
+        u = helper - (helper @ self.axis) * self.axis
+        self._u = u / np.linalg.norm(u)
+        self._v = np.cross(self.axis, self._u)
+        self._inverted = source.inverted
+        self._bc = getattr(source, "_bc", None)
+        relative = corners(source) - self.origin[:, None]
+        along = self.axis @ relative
+        radius = float(
+            np.max(np.linalg.norm(relative - np.outer(self.axis, along), axis=0))
+        )
+        extent = radius * np.sqrt(np.clip(1.0 - self.axis**2, 0.0, None))
+        ends = self.origin[:, None] + np.outer(self.axis, [along.min(), along.max()])
+        super().__init__(3, ends.min(axis=1) - extent, ends.max(axis=1) + extent)
+
+    def _folded(self, points, shift=0):
+        """The points rotated by ``-(k + shift)`` sector angles, ``k`` their sector."""
+        relative = points - xp.asarray(self.origin)[:, None]
+        axis, u, v = (xp.asarray(w)[:, None] for w in (self.axis, self._u, self._v))
+        s = xp.sum(relative * axis, axis=0)
+        x = xp.sum(relative * u, axis=0)
+        y = xp.sum(relative * v, axis=0)
+        sector = 2 * np.pi / self.count
+        phi = xp.arctan2(y, x)
+        phi = phi - sector * (xp.round(phi / sector) + shift)
+        rho = xp.sqrt(x * x + y * y)
+        return (
+            xp.asarray(self.origin)[:, None]
+            + s[None, :] * axis
+            + (rho * xp.cos(phi))[None, :] * u
+            + (rho * xp.sin(phi))[None, :] * v
+        )
+
+    def contains_points(self, points):
+        """Membership of the ``(3, n)`` points: the source's in the first sector."""
+        points = _component_major(points, 3)
+        return self.source.contains_points(self._folded(points))
+
+    def contains(self, coords):
+        """Whether the point is inside one of the copies."""
+        point = xp.asarray(coords, dtype=float).reshape(3, 1)
+        return bool(xp.to_numpy(self.contains_points(point))[0])
+
+    @property
+    def has_level_set(self):
+        """Whether the source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    def level_set(self, points):
+        """The smallest of the source's level set in the point's and the next sectors."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = _component_major(points, 3)
+        values = [
+            self.source.level_set(self._folded(points, shift)) for shift in (-1, 0, 1)
+        ]
+        return xp.minimum(xp.minimum(values[0], values[1]), values[2])
+
+    def volume(self):
+        """``count`` times the source's volume (the copies do not overlap)."""
+        return self.count * self.source.volume()
+
+
 def rotation(shape, angle, *, axis=(0, 0, 1), origin=None):
     angle = np.deg2rad(float(angle))
     c, s = np.cos(angle), np.sin(angle)
