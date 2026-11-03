@@ -7,6 +7,9 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- One example page per object of `simgeometry.objects`, from `Line` to `Helix`
+  (`tutorials/objects/`, the Objects group of the Examples): how to build it, membership,
+  level set and a figure.
 - `Helix(start, radius, pitch, turns, wire_radius, axis=..., left_handed=...)`: a helical
   wire of round cross-section with hemispherical ends, e.g. the winding of an RF coil. Its
   level set is the distance from the centreline (Newton steps along it from the
