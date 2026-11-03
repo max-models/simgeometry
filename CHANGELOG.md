@@ -7,6 +7,15 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `Helix(start, radius, pitch, turns, wire_radius, axis=..., left_handed=...)`: a helical
+  wire of round cross-section with hemispherical ends, e.g. the winding of an RF coil. Its
+  level set is the distance from the centreline (Newton steps along it from the
+  linearised minima of the nearest turns), exact within a wire radius of the wire and a
+  bound farther away; `centreline(t)`, `wire_length`, volume and surface area.
+- `PolarRepeat(source, count, axis=..., origin=...)`: ``count`` copies of a 3D shape about
+  an axis, evaluated by folding the point's angle into the first sector, so its cost does
+  not grow with ``count`` (the slits of a Faraday shield: ``tube - PolarRepeat(slit, 24)``;
+  the cut cells of 24 slits as fast as of one).
 - A Numerics section in the docs (header and sidebar): an overview of the geometry
   (`docs/src/content/docs/numerics/index.mdx`, with the main cards) and one page per module,
   from the shapes to the grids (starlight-theme's `methodcard: { pages: true }`).

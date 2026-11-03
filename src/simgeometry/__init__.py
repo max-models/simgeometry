@@ -16,6 +16,7 @@ from simgeometry.objects import (
     Cylinder,
     FunctionObject2D,
     FunctionObject3D,
+    Helix,
     Line,
     Polygon,
     Polyline,
@@ -26,6 +27,7 @@ from simgeometry.objects import (
     Triangle,
     Tube,
 )
+from simgeometry.operations import PolarRepeat
 from simgeometry.simulation_domain import SimulationDomain
 
 # simgeometry's regions stay off unless the application enables the "simgeometry" tag.
@@ -38,6 +40,7 @@ except PackageNotFoundError:  # not installed, e.g. run from a source tree
 __all__ = [
     "GeometryCollection",
     "Grid",
+    "PolarRepeat",
     "SimulationDomain",
     "Aperture2D",
     "Aperture3D",
@@ -47,6 +50,7 @@ __all__ = [
     "Cylinder",
     "FunctionObject2D",
     "FunctionObject3D",
+    "Helix",
     "Line",
     "Polygon",
     "Polyline",
