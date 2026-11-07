@@ -21,22 +21,28 @@ values; applications can configure their own seeded stream.
 - `__init__.py` - Package exports for geometry, grids, and simulation domains.
 - `boundingbox.py` - Boundingbox helpers for geometry, grids, and simulation domains.
 - `plotting.py` - Optional Matplotlib drawing for shapes and domains.
-- `domain_decomposition.py` - The process grid of the MPI ranks (`DomainDecomposition`): neighbours, the physical subdomain and the marker owner of each rank, and `layout()`, the `mpiarray.Layout` of a field on the same grid.
+- `domain_decomposition.py` - The process grid of the MPI ranks (`DomainDecomposition`): neighbours, the physical subdomain and the marker owner of each rank, and `layout()`, the `mpiarray.Layout` of a field on the same grid. `DomainDecomposition.preview(size)` builds the split of a `size`-rank run without a communicator, and `show_3d()`/`show()` draw its subdomains.
 - `grid.py` - Grid helpers for geometry, grids, and simulation domains.
 - `crossings.py` - `crossings()`: the first boundary crossing of many segments at once, for particle pushers.
 - `panels.py` - `boundary_panels()`: the straight edges of a 2D outline with lengths and normals, for boundary-element solvers.
 - `shapes.py` - Shapes helpers for geometry, grids, and simulation domains.
 - `simulation_domain.py` - Simulation domain helpers for geometry, grids, and simulation domains.
 - `utils.py` - Utils helpers for geometry, grids, and simulation domains.
+- `_level_set.py` - Exact signed-distance formulas of the primitives and the Illinois root finding on level sets.
+- `_rounded_box.py` - Line intervals, normals and closest points of boxes with rounded edges (`fillet`).
+- `collection.py` - `GeometryCollection`: named objects, overlap precedence, styles, and conductor voltages (`with_voltages`, `voltages_at`, `dirichlet_values`).
 
 The shared `GeometryAPI` adds sections, transforms, Boolean operations, plotting,
 evaluation, surface queries, sampling and export. `GeometryCollection` assigns
-names and overlap precedence. `cut_edges` owns solver-independent intersections;
+names, overlap precedence and conductor voltages. Analytic shapes have a
+`level_set` (exact where `level_set_exact`), which Booleans, transforms, sections and
+collections propagate and the crossing and distance queries use when present.
+`cut_edges` owns solver-independent intersections;
 `fractions` estimates cell/face occupancy. Picnic owns stencil coefficients and
-its minimum-distance regularization. Tutorials live in `tutorials/` and are
+its minimum-distance regularization. Example notebooks live in `tutorials/` and are
 executed into the documentation site.
 
 ## Subpackages
 
-- `objects/` - Concrete geometric objects that can be embedded in a simulation domain.
+- `objects/` - Concrete geometric objects that can be embedded in a simulation domain, including the solids of revolution `Cylinder`, `Tube`, `Cone` and `Torus` (`objects/axisymmetric.py` holds their common frame), and `SlantedTube`, a tube with a slanted end.
 - `tests/` - Test modules for `simgeometry`.

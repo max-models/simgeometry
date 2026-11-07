@@ -4,13 +4,51 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._types import Array, BoundsLike, ConfigValue
-from simgeometry.shapes import Shape2D, Spacing, _component_major, _distribute
+from simgeometry.shapes import (
+    Shape2D,
+    Spacing,
+    _component_major,
+    _distribute,
+    _level_set_at,
+)
 
 
+def _circle_rules() -> dict:
+    """The SymPy rule of the `Circle` level set (for the tests)."""
+    import sympy
+
+    x, y, cx, cy, r = sympy.symbols("x y cx cy r", real=True)
+
+    def level_set(x, y, cx, cy, r):
+        return _level_set_at(Circle((cx, cy), r), x, y)
+
+    rule = sympy.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+    ranges = {"x": (-3.0, 3.0), "y": (-3.0, 3.0), "r": (0.2, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p \in S \iff |p - c|^2 \le r^2",
+        "level_set": r"\phi(p) = |p - c| - r",
+    },
+    assumptions=(
+        "closed: points on the circle are inside",
+        r"$\phi$ is the exact signed distance, negative inside",
+    ),
+    symbolic=_circle_rules,
+)
 class Circle(Shape2D):
-    """Represent a circular geometry object."""
+    """Represent a circular geometry object.
+
+    Its `level_set` is the exact signed distance ``|p - midpoint| - radius``.
+    """
+
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -129,10 +167,15 @@ class Circle(Shape2D):
         return self._apply_inversion(bool(distance_squared <= self.radius**2))
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(2, n)`` points inside."""
         points = _component_major(points, 2)
         midpoint = xp.asarray(self.midpoint, dtype=float)[:, None]
         # summed over the axes in order, as xp.sum does for one point
         distance_squared = xp.sum((points - midpoint) ** 2, axis=0)
         inside = distance_squared <= self.radius**2
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the circle."""
+        midpoint = xp.asarray(self.midpoint, dtype=float)[:, None]
+        return xp.sqrt(xp.sum((points - midpoint) ** 2, axis=0)) - self.radius

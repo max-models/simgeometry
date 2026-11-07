@@ -7,8 +7,17 @@ from itertools import product
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
+from methodcard import Rule, method
 
-from simgeometry.shapes import Shape, _component_major, _refine_loop, _signed_area
+from simgeometry._profiling import _PROFILE_TAGS
+from simgeometry.shapes import (
+    Shape,
+    _component_major,
+    _level_set_at,
+    _refine_loop,
+    _signed_area,
+)
 
 
 def corners(shape):
@@ -19,12 +28,87 @@ def mask(shape, points):
     return np.asarray(xp.to_numpy(shape.contains_points(points)), dtype=bool)
 
 
+def _shapely():
+    try:
+        import shapely
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            "Outlines of Boolean shapes need shapely: pip install 'simgeometry[clip]'"
+        ) from exc
+    return shapely
+
+
+def _polygons(geometry):
+    """The nonempty polygons of a shapely geometry, in a deterministic order."""
+    shapely = _shapely()
+    polygons = []
+    for part in shapely.get_parts(geometry):
+        if isinstance(part, shapely.Polygon):
+            if part.area > 0:
+                polygons.append(part)
+        elif isinstance(part, (shapely.MultiPolygon, shapely.GeometryCollection)):
+            polygons.extend(_polygons(part))
+    return sorted(polygons, key=lambda p: (p.bounds[0], p.bounds[1], -p.area))
+
+
+def _shapely_ring(ring, *, counter_clockwise):
+    """A shapely ring as a ``(2, n)`` loop, without repeated vertices."""
+    coords = np.asarray(ring.coords, dtype=float)[:-1]
+    keep = np.any(coords != np.roll(coords, 1, axis=0), axis=1)
+    loop = np.ascontiguousarray(coords[keep].T)
+    if (_signed_area(loop) > 0) != counter_clockwise:
+        loop = np.ascontiguousarray(loop[:, ::-1])
+    return loop
+
+
+def _boolean_rules() -> dict:
+    """The SymPy rules of the `BooleanShape` level sets, of two circles (for the tests)."""
+    import sympy
+
+    from simgeometry.objects import Circle
+
+    x, y = sympy.symbols("x y", real=True)
+    a, b = Circle((-0.3, 0.0), 0.8), Circle((0.4, 0.2), 0.6)
+    phi_a = sympy.sqrt((x + 0.3) ** 2 + y**2) - 0.8
+    phi_b = sympy.sqrt((x - 0.4) ** 2 + (y - 0.2) ** 2) - 0.6
+    ranges = {"x": (-1.5, 1.5), "y": (-1.5, 1.5)}
+
+    def rule(shape, expr):
+        return Rule(
+            expr, implementation=lambda x, y: _level_set_at(shape, x, y), ranges=ranges
+        )
+
+    return {
+        "union": rule(a | b, sympy.Min(phi_a, phi_b)),
+        "intersection": rule(a & b, sympy.Max(phi_a, phi_b)),
+        "difference": rule(a - b, sympy.Max(phi_a, -phi_b)),
+    }
+
+
+@method(
+    equations={
+        "union": r"a \lor b: \quad \phi = \min(\phi_a, \phi_b)",
+        "intersection": r"a \land b: \quad \phi = \max(\phi_a, \phi_b)",
+        "difference": r"a \land \lnot b: \quad \phi = \max(\phi_a, -\phi_b)",
+    },
+    assumptions=(
+        "membership combines the operands' masks; a level set needs one on both operands",
+        "the combined level set is a bound on the distance, not the exact distance (`level_set_exact` is False)",
+    ),
+    symbolic=_boolean_rules,
+)
 class BooleanShape(Shape):
     """A snapshot of a union, intersection, or difference of two shapes.
 
     Bounds conservatively enclose operands. ``inverted`` indicates the result
     may be unbounded, so sampling requires explicit bounds in that case.
+
+    When both operands have a level set, so does the result: the minimum (union),
+    maximum (intersection) or ``max(a, -b)`` (difference) of theirs. That is a valid
+    level set and a bound on the distance, but not the exact distance.
     """
+
+    level_set_exact = False
 
     def __init__(self, left, right, operation):
         if left.ndim != right.ndim:
@@ -49,6 +133,26 @@ class BooleanShape(Shape):
             return a & b
         return a & ~b
 
+    @property
+    def has_level_set(self):
+        """Whether both operands have a level set."""
+        return bool(
+            getattr(self.left, "has_level_set", False)
+            and getattr(self.right, "has_level_set", False)
+        )
+
+    def level_set(self, points):
+        """Min/max combination of the operands' level sets; see the class docstring."""
+        if not self.has_level_set:
+            raise NotImplementedError("Both Boolean operands need a level set")
+        points = _component_major(points, self.ndim)
+        a, b = self.left.level_set(points), self.right.level_set(points)
+        if self.operation == "union":
+            return xp.minimum(a, b)
+        if self.operation == "intersection":
+            return xp.maximum(a, b)
+        return xp.maximum(a, -b)
+
     def contains(self, coords):
         return bool(
             xp.to_numpy(self.contains_points(np.asarray(coords).reshape(self.ndim, 1)))[
@@ -56,6 +160,7 @@ class BooleanShape(Shape):
             ]
         )
 
+    @sp.profile("simgeometry.boolean_outlines", tags=_PROFILE_TAGS)
     def outlines(self, max_spacing=None):
         """The boundary loops of a 2D Boolean shape, as ``(2, n)`` host arrays.
 
@@ -81,20 +186,10 @@ class BooleanShape(Shape):
         return [_refine_loop(loop, max_spacing) for loop in loops]
 
     def boundary_panels(self, max_spacing=None):
-        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        """The edges of `outlines` as panels; see ``Shape2D.boundary_panels``."""
         from simgeometry.panels import boundary_panels
 
         return boundary_panels(self, max_spacing)
-
-
-def _shapely():
-    try:
-        import shapely
-    except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise ImportError(
-            "Outlines of Boolean shapes need shapely: pip install 'simgeometry[clip]'"
-        ) from exc
-    return shapely
 
 
 def _shapely_geometry(shape, max_spacing):
@@ -137,31 +232,47 @@ def _shapely_geometry(shape, max_spacing):
     return shapely.make_valid(geometry)
 
 
-def _polygons(geometry):
-    """The nonempty polygons of a shapely geometry, in a deterministic order."""
-    shapely = _shapely()
-    polygons = []
-    for part in shapely.get_parts(geometry):
-        if isinstance(part, shapely.Polygon):
-            if part.area > 0:
-                polygons.append(part)
-        elif isinstance(part, (shapely.MultiPolygon, shapely.GeometryCollection)):
-            polygons.extend(_polygons(part))
-    return sorted(polygons, key=lambda p: (p.bounds[0], p.bounds[1], -p.area))
+def _transformed_rules() -> dict:
+    """The SymPy rule of the `TransformedShape` level set, a stretched circle (for the tests)."""
+    import sympy
+
+    from simgeometry.objects import Circle
+
+    x, y, sx, sy = sympy.symbols("x y sx sy", positive=True)
+
+    def level_set(x, y, sx, sy):
+        shape = TransformedShape(
+            Circle((0.0, 0.0), 1.0), np.diag([sx, sy]), (0.3, -0.2)
+        )
+        return _level_set_at(shape, x, y)
+
+    local = sympy.sqrt(((x - 0.3) / sx) ** 2 + ((y + 0.2) / sy) ** 2) - 1
+    rule = sympy.Min(sx, sy) * local
+    ranges = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "sx": (0.5, 2.0), "sy": (0.5, 2.0)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
 
 
-def _shapely_ring(ring, *, counter_clockwise):
-    """A shapely ring as a ``(2, n)`` loop, without repeated vertices."""
-    coords = np.asarray(ring.coords, dtype=float)[:-1]
-    keep = np.any(coords != np.roll(coords, 1, axis=0), axis=1)
-    loop = np.ascontiguousarray(coords[keep].T)
-    if (_signed_area(loop) > 0) != counter_clockwise:
-        loop = np.ascontiguousarray(loop[:, ::-1])
-    return loop
-
-
+@method(
+    equations={
+        "map": r"p \mapsto M p + o, \qquad p \in T(S) \iff M^{-1}(p - o) \in S",
+        "level_set": r"\phi_T(p) = \sigma_\mathrm{min}(M)\,\phi\big(M^{-1}(p - o)\big)",
+        "bound": r"|M^{-1}x - M^{-1}y| \le \frac{|x - y|}{\sigma_\mathrm{min}(M)}",
+        "normal": r"n_T = \frac{M^{-T} n}{|M^{-T} n|}",
+    },
+    assumptions=(
+        r"$M$ invertible and finite; $\sigma_\mathrm{min}$ its smallest singular value",
+        "the level set stays a bound on the distance; it is exact only for an exact source under a similarity (rigid motion or uniform scaling)",
+    ),
+    symbolic=_transformed_rules,
+)
 class TransformedShape(Shape):
-    """Independent affine image of a source, mapping p to matrix @ p + offset."""
+    """Independent affine image of a source, mapping p to matrix @ p + offset.
+
+    The level set is the source's at the mapped-back point, times the smallest
+    singular value of ``matrix``, which keeps it a bound on the distance. Rigid
+    motions and uniform scalings (similarities) keep an exact level set exact;
+    nonuniform scalings and shears do not.
+    """
 
     def __init__(self, source, matrix, offset=None):
         self.source = copy.deepcopy(source)
@@ -180,6 +291,9 @@ class TransformedShape(Shape):
         except np.linalg.LinAlgError as exc:
             raise ValueError("Transform must be invertible") from exc
         vertices = self.matrix @ corners(source) + self.offset[:, None]
+        singular = np.linalg.svd(self.matrix, compute_uv=False)
+        self._stretch = float(singular.min())
+        self._similarity = bool(np.allclose(singular, self._stretch, rtol=1e-12))
         self._inverted = source.inverted
         self._bc = getattr(source, "_bc", None)
         self._bc_type = getattr(source, "_bc_type", "dirichlet")
@@ -192,6 +306,24 @@ class TransformedShape(Shape):
 
     def contains(self, coords):
         return self.source.contains(self.inverse @ (np.asarray(coords) - self.offset))
+
+    @property
+    def has_level_set(self):
+        """Whether the source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    @property
+    def level_set_exact(self):
+        """Exact for an exact source under a rigid motion or uniform scaling."""
+        return bool(getattr(self.source, "level_set_exact", False) and self._similarity)
+
+    def level_set(self, points):
+        """The source's level set, scaled by the smallest stretch of the transform."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = _component_major(points, self.ndim)
+        local = xp.asarray(self.inverse) @ (points - xp.asarray(self.offset)[:, None])
+        return self._stretch * self.source.level_set(local)
 
     def outlines(self, max_spacing=None):
         """The source's outline loops, transformed (2D only); see ``Shape2D.outlines``.
@@ -231,7 +363,7 @@ class TransformedShape(Shape):
         return getattr(self.source, "exact_outline", False)
 
     def boundary_panels(self, max_spacing=None):
-        """The edges of :meth:`outlines` as panels; see ``Shape2D.boundary_panels``."""
+        """The edges of `outlines` as panels; see ``Shape2D.boundary_panels``."""
         from simgeometry.panels import boundary_panels
 
         return boundary_panels(self, max_spacing)
@@ -265,6 +397,106 @@ class TransformedShape(Shape):
         return super().evaluate(*args, quantity=quantity, **kwargs)
 
 
+@method(
+    equations={
+        "fold": r"\varphi' = \varphi - k\,\Delta, \quad k = \operatorname{round}(\varphi / \Delta), \quad \Delta = \frac{2\pi}{N}",
+        "level_set": r"\phi_N(p) = \min_{j \in \{k - 1, k, k + 1\}} \phi\big(R_{-j\Delta}\, p\big)",
+    },
+    assumptions=(
+        r"$N$ copies of the source rotated about the axis by multiples of $\Delta$; $\varphi$ the point's angle about the axis from the reference direction (the unit vector normal to the axis closest to x)",
+        r"the source lies within its sector $|\varphi| < \Delta / 2$ (copies do not overlap), so membership is the source's at the point rotated into the first sector",
+        r"the level set is the smallest over the point's sector and its two neighbours: a bound on the distance where the nearest copy is among them (copies away from the axis)",
+    ),
+)
+class PolarRepeat(Shape):
+    """``count`` copies of a 3D shape rotated about an axis, evaluated as one.
+
+    Copy ``j`` is the source rotated by ``j * 360 / count`` degrees about ``axis``
+    through ``origin``. A point is mapped into the first copy's sector (its angle
+    folded to ``|phi| < 180 / count`` degrees) and tested against the source alone,
+    so the cost does not grow with ``count`` as a union of rotated copies would: the
+    24 slits of a Faraday shield are ``tube - PolarRepeat(slit, 24)``. The source must
+    lie within its sector, centred on the reference direction (the unit vector
+    normal to the axis closest to x, as `Helix` uses).
+    """
+
+    level_set_exact = False
+
+    def __init__(self, source, count, *, axis=(0.0, 0.0, 1.0), origin=None):
+        if source.ndim != 3:
+            raise ValueError("PolarRepeat needs a 3D shape")
+        if int(count) != count or count < 1:
+            raise ValueError("count must be a positive integer")
+        axis = np.asarray(axis, float)
+        if axis.shape != (3,) or not np.all(np.isfinite(axis)) or not np.any(axis):
+            raise ValueError("The axis must be a finite nonzero 3-vector")
+        self.source = copy.deepcopy(source)
+        self.count = int(count)
+        self.axis = axis / np.linalg.norm(axis)
+        self.origin = np.zeros(3) if origin is None else np.asarray(origin, float)
+        helper = np.eye(3)[0] if abs(self.axis[0]) < 0.9 else np.eye(3)[1]
+        u = helper - (helper @ self.axis) * self.axis
+        self._u = u / np.linalg.norm(u)
+        self._v = np.cross(self.axis, self._u)
+        self._inverted = source.inverted
+        self._bc = getattr(source, "_bc", None)
+        relative = corners(source) - self.origin[:, None]
+        along = self.axis @ relative
+        radius = float(
+            np.max(np.linalg.norm(relative - np.outer(self.axis, along), axis=0))
+        )
+        extent = radius * np.sqrt(np.clip(1.0 - self.axis**2, 0.0, None))
+        ends = self.origin[:, None] + np.outer(self.axis, [along.min(), along.max()])
+        super().__init__(3, ends.min(axis=1) - extent, ends.max(axis=1) + extent)
+
+    def _folded(self, points, shift=0):
+        """The points rotated by ``-(k + shift)`` sector angles, ``k`` their sector."""
+        relative = points - xp.asarray(self.origin)[:, None]
+        axis, u, v = (xp.asarray(w)[:, None] for w in (self.axis, self._u, self._v))
+        s = xp.sum(relative * axis, axis=0)
+        x = xp.sum(relative * u, axis=0)
+        y = xp.sum(relative * v, axis=0)
+        sector = 2 * np.pi / self.count
+        phi = xp.arctan2(y, x)
+        phi = phi - sector * (xp.round(phi / sector) + shift)
+        rho = xp.sqrt(x * x + y * y)
+        return (
+            xp.asarray(self.origin)[:, None]
+            + s[None, :] * axis
+            + (rho * xp.cos(phi))[None, :] * u
+            + (rho * xp.sin(phi))[None, :] * v
+        )
+
+    def contains_points(self, points):
+        """Membership of the ``(3, n)`` points: the source's in the first sector."""
+        points = _component_major(points, 3)
+        return self.source.contains_points(self._folded(points))
+
+    def contains(self, coords):
+        """Whether the point is inside one of the copies."""
+        point = xp.asarray(coords, dtype=float).reshape(3, 1)
+        return bool(xp.to_numpy(self.contains_points(point))[0])
+
+    @property
+    def has_level_set(self):
+        """Whether the source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    def level_set(self, points):
+        """The smallest of the source's level set in the point's and the next sectors."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = _component_major(points, 3)
+        values = [
+            self.source.level_set(self._folded(points, shift)) for shift in (-1, 0, 1)
+        ]
+        return xp.minimum(xp.minimum(values[0], values[1]), values[2])
+
+    def volume(self):
+        """``count`` times the source's volume (the copies do not overlap)."""
+        return self.count * self.source.volume()
+
+
 def rotation(shape, angle, *, axis=(0, 0, 1), origin=None):
     angle = np.deg2rad(float(angle))
     c, s = np.cos(angle), np.sin(angle)
@@ -288,12 +520,25 @@ def rotation(shape, angle, *, axis=(0, 0, 1), origin=None):
     return shape.transformed(matrix, origin - matrix @ origin)
 
 
+@method(
+    equations={
+        "plane": r"p = o + B q, \qquad q = B^\mathsf{T}(p - o)",
+        "level_set": r"\phi_\mathrm{section}(q) = \phi(o + B q)",
+    },
+    assumptions=(
+        r"$B$ the orthonormal in-plane basis (columns), $o$ the plane origin; membership is the source's at $o + Bq$",
+        "the source's level set on the plane only bounds the in-plane distance (`level_set_exact` is False)",
+    ),
+)
 class Section(Shape):
     """A membership-preserving section, including holes and disconnected pieces.
 
     ``to_world`` and ``to_local`` use component-major arrays. ``to_local`` is
     an orthogonal projection. For oblique planes, x/y denote plane coordinates.
     """
+
+    #: A 3D distance restricted to a plane only bounds the in-plane distance.
+    level_set_exact = False
 
     def __init__(self, source, *, x=None, y=None, z=None, origin=None, normal=None):
         if source.ndim < 2:
@@ -371,6 +616,18 @@ class Section(Shape):
     def contains(self, coords):
         return self.source.contains(self._to_parent(np.atleast_1d(coords)))
 
+    @property
+    def has_level_set(self):
+        """Whether the sliced source has a level set."""
+        return bool(getattr(self.source, "has_level_set", False))
+
+    def level_set(self, points):
+        """The source's level set on the plane: a bound on the in-plane distance."""
+        if not self.has_level_set:
+            raise NotImplementedError(f"{type(self.source).__name__} has no level set")
+        points = np.asarray(xp.to_numpy(_component_major(points, self.ndim)), float)
+        return self.source.level_set(self._to_parent(points))
+
     def labels(self, points):
         if not hasattr(self.source, "labels"):
             return mask(self, points).astype(int)
@@ -384,3 +641,56 @@ class Section(Shape):
     @property
     def names(self):
         return getattr(self.source, "names", ("inside",))
+
+    def _sampled_loops(self, max_spacing, resolution, bounds):
+        """``(loop, closed)`` pairs of `outlines`, in plane coordinates."""
+        from simgeometry.mesh import _find_contours
+
+        if self.ndim != 2:
+            raise NotImplementedError("outlines() needs a 2D section of a 3D shape")
+        if (
+            max_spacing is not None
+            and not callable(max_spacing)
+            and not max_spacing > 0
+        ):
+            raise ValueError("max_spacing must be positive")
+        contours, _ = _find_contours(self, resolution=resolution, bounds=bounds)
+        loops = []
+        for contour in contours:
+            closed = len(contour) > 3 and np.array_equal(contour[0], contour[-1])
+            loop = contour[:-1] if closed else contour
+            loop = loop[np.any(np.diff(loop, axis=0, prepend=np.nan) != 0, axis=1)]
+            if len(loop) < 2:
+                continue
+            loop = np.ascontiguousarray(loop.T)
+            if max_spacing is not None:
+                loop = _refine_loop(loop, max_spacing, closed=closed)
+            loops.append((loop, closed))
+        return loops
+
+    def outlines(self, max_spacing=None, *, resolution=128, bounds=None, world=False):
+        """The sampled boundary loops of a plane section, as ``(2, n)`` host arrays.
+
+        Loops follow ``Shape2D.outlines``: no repeated first vertex, and the region on
+        their left, so outer boundaries are counter-clockwise and holes clockwise (a
+        hollow sphere gives one of each). They come from contouring the section on
+        ``resolution`` samples per axis across ``bounds`` (default: the section's
+        bounds, padded by 5%), on the level set where the source has one, so vertices
+        lie on the boundary up to the sampling accuracy. A loop cut by ``bounds`` stays
+        open. ``max_spacing`` (a length, or a function of ``(2, m)`` plane points)
+        splits longer edges evenly, as for Boolean outlines. ``world=True`` maps the
+        loops onto the plane in 3D, as ``(3, n)`` arrays. Requires the ``mesh`` extra;
+        sections of 2D shapes (lines) have no outlines.
+        """
+        loops = self._sampled_loops(max_spacing, resolution, bounds)
+        return [self.to_world(loop) if world else loop for loop, _ in loops]
+
+    def show_3d(self, **kwargs):
+        """The section in 3D: its source, the cutting plane and the section outline.
+
+        See `simgeometry.visualization.show_section_3d`; returns Matplotlib
+        axes, or a PyVista plotter for ``backend='pyvista'``.
+        """
+        from simgeometry.visualization import show_section_3d
+
+        return show_section_3d(self, **kwargs)

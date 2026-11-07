@@ -4,16 +4,66 @@ from __future__ import annotations
 
 import cunumpy as xp
 import numpy as np
+from methodcard import Rule, method
 
 from simgeometry._types import Array, ConfigValue, Vertices2DLike
-from simgeometry.shapes import Shape2D, _component_major
+from simgeometry.shapes import Shape2D, _component_major, _level_set_at
 from simgeometry.utils import vertices_to_bounds
 
 
+def _triangle_rules() -> dict:
+    """The SymPy rule of the `Triangle` level set (for the tests).
+
+    Membership by the sides of the edges (a counter-clockwise triangle), the distance
+    to the nearest edge.
+    """
+    import sympy
+
+    x, y = sympy.symbols("x y", real=True)
+    corners = [(0.0, 0.0), (1.2, 0.1), (0.2, 0.9)]
+    triangle = Triangle(corners)
+
+    def level_set(x, y):
+        return _level_set_at(triangle, x, y)
+
+    distances, sides = [], []
+    for (ax, ay), (bx, by) in zip(corners, corners[1:] + corners[:1]):
+        ex, ey = bx - ax, by - ay
+        t = sympy.Min(
+            sympy.Max(((x - ax) * ex + (y - ay) * ey) / (ex**2 + ey**2), 0), 1
+        )
+        distances.append(sympy.sqrt((x - ax - t * ex) ** 2 + (y - ay - t * ey) ** 2))
+        sides.append(ex * (y - ay) - ey * (x - ax) > 0)
+    distance = sympy.Min(*distances)
+    rule = sympy.Piecewise((-distance, sympy.And(*sides)), (distance, True))
+    ranges = {"x": (-0.5, 1.5), "y": (-0.5, 1.2)}
+    return {"level_set": Rule(rule, implementation=level_set, ranges=ranges)}
+
+
+@method(
+    equations={
+        "inside": r"p = v_0 + u\,(v_2 - v_0) + v\,(v_1 - v_0), \qquad p \in S \iff u \ge 0,\; v \ge 0,\; u + v \le 1",
+        "level_set": r"\phi(p) = \pm \min_\text{edges} \left| p - a - \operatorname{clip}\!\left(\tfrac{(p - a)\cdot e}{|e|^2}, 0, 1\right) e \right|, \qquad e = b - a",
+    },
+    assumptions=(
+        r"barycentric coordinates $u, v$ with closed edges, inside the half-open bounding box",
+        "a degenerate triangle contains no point",
+        r"$\phi$: the distance to the nearest edge, negative inside; exact",
+    ),
+    references=(
+        "[Quílez, 2D distance functions](https://iquilezles.org/articles/distfunctions2d/)",
+    ),
+    symbolic=_triangle_rules,
+)
 class Triangle(Shape2D):
-    """Represent a triangular geometry object."""
+    """Represent a triangular geometry object.
+
+    Its `level_set` is the exact signed distance to its edges.
+    """
 
     exact_outline = True
+    has_level_set = True
+    level_set_exact = True
 
     def __init__(
         self,
@@ -113,7 +163,7 @@ class Triangle(Shape2D):
         return bool(xp.to_numpy(self.contains_points(point))[0])
 
     def contains_points(self, points: Array) -> Array:
-        """Vectorised :meth:`contains`: a mask of the ``(2, n)`` points inside."""
+        """Vectorised `contains`: a mask of the ``(2, n)`` points inside."""
         points = _component_major(points, 2)
         vertices = [xp.asarray(vertex, dtype=float) for vertex in self._vertices]
         lower = xp.asarray(self.bounding_box.lower_bound, dtype=float)[:, None]
@@ -138,6 +188,10 @@ class Triangle(Shape2D):
             v = (dot00 * dot12 - dot01 * dot02) * inv_denom
             inside = in_box & (u >= 0) & (v >= 0) & (u + v <= 1)
         return ~inside if self.inverted else inside
+
+    def _level_set(self, points: Array) -> Array:
+        """Exact signed distance to the triangle's edges."""
+        return self._edge_level_set(points)
 
     def _corner_loops(self) -> list[np.ndarray]:
         """The three vertices as one ``(2, 3)`` loop."""

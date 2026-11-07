@@ -2,6 +2,9 @@
 
 All coordinates and results here are NumPy host arrays. The bisection helper
 batches containment queries so GPU implementations can still accelerate them.
+Shapes with a level set (``shape.has_level_set``) have their crossings refined by
+Illinois (modified regula falsi) steps on it instead of bisection, and exact level
+sets give ``signed_distance`` directly.
 """
 
 from __future__ import annotations
@@ -10,7 +13,16 @@ from dataclasses import dataclass
 
 import cunumpy as xp
 import numpy as np
+import scope_profiler as sp
+from methodcard import ConvergenceProblem, method
 
+from simgeometry._level_set import has_level_set, illinois_roots, level_set_gradient
+from simgeometry._profiling import _PROFILE_TAGS
+from simgeometry._rounded_box import (
+    rounded_box_closest,
+    rounded_box_interval,
+    rounded_box_normal,
+)
 from simgeometry.objects import (
     Circle,
     Cuboid,
@@ -27,6 +39,21 @@ BOXES = (Rectangle, Cuboid, Line)
 POLYGONS = (Polygon, Triangle)
 
 
+def _is_rounded(shape):
+    """Whether ``shape`` is a box with rounded edges (a ``fillet``)."""
+    return isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0
+
+
+def _is_box(shape):
+    return isinstance(shape, BOXES) and not _is_rounded(shape)
+
+
+def _centre_half(shape):
+    lower = np.asarray(shape.lower_bound, float)
+    upper = np.asarray(shape.upper_bound, float)
+    return 0.5 * (lower + upper), 0.5 * (upper - lower)
+
+
 def points_array(points, ndim):
     p = np.asarray(xp.to_numpy(points), float)
     single = p.ndim == 1
@@ -37,12 +64,67 @@ def points_array(points, ndim):
     return p, single
 
 
+def level_values(shape, points):
+    """``shape.level_set`` of host points, as a host float array."""
+    return np.asarray(xp.to_numpy(shape.level_set(points)), dtype=float)
+
+
+def _bisection_problem() -> ConvergenceProblem:
+    """Edges into the solid around the bore of an `Aperture3D` (no level set)."""
+    from simgeometry.objects import Aperture3D
+
+    radius = 0.5
+    bore = Aperture3D("z", (0.0, 0.0), ((0.0, radius),), (-1, -1, -1), (1, 1, 1))
+    rng = np.random.default_rng(2)
+    y = rng.uniform(-0.4, 0.4, 2000)
+    z = rng.uniform(-0.5, 0.5, 2000)
+    x0 = rng.uniform(-0.3, 0.0, 2000)
+    outside = np.stack((x0, y, z))
+    inside = np.stack((np.full(2000, 0.9), y, z))
+    exact = (np.sqrt(radius**2 - y**2) - x0) / (0.9 - x0)
+
+    def error(width: float) -> float:
+        iterations = round(-np.log2(width))
+        found = intersection_fractions(bore, outside, inside, iterations=iterations)
+        return float(np.mean(np.abs(found - exact)))
+
+    return ConvergenceProblem(error, steps=[2.0**-6, 2.0**-8, 2.0**-10, 2.0**-12])
+
+
+@method(
+    equations={
+        "secant": r"t = \frac{t_a f_b - t_b f_a}{f_b - f_a}, \qquad f(t) = \phi(a + t\,d)",
+        "illinois": r"(t_a, f_a) \leftarrow (t, f) \text{ if } \operatorname{sign} f = \operatorname{sign} f_a, \text{ else } (t_b, f_b) \leftarrow (t, f); \quad f_b \leftarrow f_b/2 \;(f_a \leftarrow f_a/2) \text{ if } b \;(a) \text{ is kept twice in a row}",
+        "converged": r"|f| \le \nu = \varepsilon\,\big(\max_k|a_k| + \max_k|d_k|\big) \;\text{or}\; |t' - t| \le \tau \;\text{or}\; |t_b - t_a| \le \tau, \qquad \tau = 2^{-m}",
+        "bisection": r"\min\!\Big(m, \max\big(1, \big\lceil \log_2(w\,2^{m}) \big\rceil\big)\Big) \text{ halvings on membership}, \qquad t = t_\mathrm{hi}",
+    },
+    order=1,
+    assumptions=(
+        r"each edge from an outside point $a$ to an inside point $a + d$ brackets one crossing (`ValueError` otherwise); the fraction is measured from the outside end and not clamped",
+        r"with a level set and $\phi(a) > 0 > \phi(a + d)$: at most 12 Illinois steps (`SECANT_STEPS`), superlinear (order about 1.44 for a simple root)",
+        r"the other edges, and those Illinois left unsettled with their narrowed bracket of width $w$, are bisected on membership and return the inside end $t_\mathrm{hi}$",
+        "`wrap` maps periodic images into the domain before every membership or level-set call",
+        r"the order is that of the bisection in the final bracket width $2^{-m}$ (`iterations` $m = 48$)",
+    ),
+    references=(
+        "[Dowell and Jarratt, BIT 11, 168 (1971)](https://doi.org/10.1007/BF01934364)",
+    ),
+    problem=_bisection_problem,
+)
 def intersection_fractions(obj, outside, inside, *, iterations=48, wrap=None):
-    """Bisect bracketed outside-to-inside edges; return raw, unclamped fractions.
+    """Locate bracketed outside-to-inside edge crossings; return raw, unclamped fractions.
 
     Endpoints have shape (ndim, n). Each segment must bracket a single crossing;
     use intersect_segment for multiple crossings or equal-membership endpoints.
     ``wrap`` maps periodic images into the domain for membership tests.
+
+    Membership (``contains``) decides the brackets. If the object has a level set
+    and its values at the two ends have opposite signs, the crossing is its root,
+    found from the linear interpolation of the end values and a few Illinois
+    steps, to within ``2**-iterations`` of the edge (typically to round-off after
+    3 to 6 level-set evaluations). Other edges, and any the secant steps do not
+    settle, are bisected ``iterations`` times on membership and return the end of
+    the final interval inside the object.
     """
     outside, _ = points_array(outside, obj.ndim)
     inside, _ = points_array(inside, obj.ndim)
@@ -55,14 +137,46 @@ def intersection_fractions(obj, outside, inside, *, iterations=48, wrap=None):
 
     if mask(obj, wrap(outside)).any() or not mask(obj, wrap(inside)).all():
         raise ValueError("Bisection requires outside-to-inside brackets")
-    lo, hi = np.zeros(outside.shape[1]), np.ones(outside.shape[1])
+    n = outside.shape[1]
+    lo, hi = np.zeros(n), np.ones(n)
     step = inside - outside
-    for _ in range(iterations):
-        mid = (lo + hi) / 2
-        hit = mask(obj, wrap(outside + mid * step))
-        hi = np.where(hit, mid, hi)
-        lo = np.where(hit, lo, mid)
-    return hi
+    fractions = np.full(n, np.nan)
+    pending = np.ones(n, dtype=bool)
+    if has_level_set(obj) and n:
+
+        def level(points):
+            return level_values(obj, wrap(points))
+
+        f_out, f_in = level(outside), level(inside)
+        secant = np.flatnonzero((f_out > 0) & (f_in < 0))
+        if secant.size:
+            t, a, b, done = illinois_roots(
+                level,
+                outside[:, secant],
+                step[:, secant],
+                lo[secant],
+                hi[secant],
+                f_out[secant],
+                f_in[secant],
+                2.0**-iterations,
+            )
+            fractions[secant[done]] = t[done]
+            pending[secant[done]] = False
+            # unsettled edges keep their narrowed bracket for the bisection
+            lo[secant[~done]], hi[secant[~done]] = a[~done], b[~done]
+    rest = np.flatnonzero(pending)
+    if rest.size:
+        lo, hi = lo[rest], hi[rest]
+        start, step = outside[:, rest], step[:, rest]
+        # brackets narrowed by the secant steps need fewer halvings
+        width = float(np.max(hi - lo)) * 2.0**iterations
+        for _ in range(min(iterations, max(1, int(np.ceil(np.log2(width)))))):
+            mid = (lo + hi) / 2
+            hit = mask(obj, wrap(start + mid * step))
+            hi = np.where(hit, mid, hi)
+            lo = np.where(hit, lo, mid)
+        fractions[rest] = hi
+    return fractions
 
 
 @dataclass(frozen=True)
@@ -128,7 +242,14 @@ def _candidates(shape, a, b, samples, tolerance):
             return [], True
         half = np.sqrt(max(radial, 0) / aa)
         return [centre - half, centre + half], True
-    if isinstance(shape, BOXES):
+    if _is_rounded(shape):
+        centre, half = _centre_half(shape)
+        t0, t1 = rounded_box_interval(
+            a[:, None], d[:, None], centre, half, shape.fillet
+        )
+        lo, hi = float(t0[0]), float(t1[0])
+        return ([lo, hi] if lo <= hi else []), True
+    if _is_box(shape):
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
         lo, hi = -np.inf, np.inf
         for i in range(shape.ndim):
@@ -163,9 +284,28 @@ def _candidates(shape, a, b, samples, tolerance):
     if int(samples) != samples or samples < 2:
         raise ValueError("samples must be an integer >= 2")
     ts = np.linspace(0, 1, int(samples) + 1)
-    states = mask(shape, a[:, None] + d[:, None] * ts)
+    points = a[:, None] + d[:, None] * ts
+    states = mask(shape, points)
     changes = np.flatnonzero(states[:-1] != states[1:])
     hits = []
+    if has_level_set(shape) and changes.size:
+        # refine the sampled membership changes on the level set where it changes
+        # sign too, all at once; the others are bisected below
+        values = level_values(shape, points)
+        secant = changes[values[changes] * values[changes + 1] < 0]
+        if secant.size:
+            t, _, _, done = illinois_roots(
+                lambda p: level_values(shape, p),
+                np.repeat(a[:, None], secant.size, axis=1),
+                np.repeat(d[:, None], secant.size, axis=1),
+                ts[secant],
+                ts[secant + 1],
+                values[secant],
+                values[secant + 1],
+                2.0**-48,
+            )
+            hits.extend(float(v) for v in t[done])
+            changes = np.setdiff1d(changes, secant[done])
     for i in changes:
         lo, hi = ts[i], ts[i + 1]
         for _ in range(48):
@@ -176,6 +316,119 @@ def _candidates(shape, a, b, samples, tolerance):
                 hi = mid
         hits.append((lo + hi) / 2)
     return hits, False
+
+
+def _closest_segments(p, segments):
+    a, b = segments[:, 0], segments[:, 1]
+    d = b - a
+    denominator = np.sum(d * d, axis=1)
+    t = np.sum((p - a) * d, axis=1) / np.where(denominator > 0, denominator, 1)
+    return a + np.clip(t, 0, 1)[:, None] * d
+
+
+def estimate_surface_normal(obj, point, scale, *, require_boundary=True):
+    """Solid-outward unit normal estimated by directional membership samples.
+
+    Set require_boundary=False to retain the original Picnic estimator at
+    periodic image points, including its cancellation behavior away from a surface.
+    """
+    point = np.asarray(point, float)
+    ndim = point.size
+    if ndim == 1:
+        directions = np.asarray([[-1.0], [1.0]])
+    elif ndim == 2:
+        theta = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+        directions = np.column_stack((np.cos(theta), np.sin(theta)))
+    else:
+        indices = np.arange(128, dtype=float) + 0.5
+        z = 1 - 2 * indices / 128
+        theta = np.pi * (1 + np.sqrt(5)) * indices
+        radial = np.sqrt(1 - z * z)
+        directions = np.column_stack(
+            (radial * np.cos(theta), radial * np.sin(theta), z)
+        )
+    epsilon = max(scale * 1e-5, np.finfo(float).eps * 128)
+    hits = mask(obj, point[:, None] + epsilon * directions.T)
+    normal = np.sum(np.where(hits[:, None], -directions, directions), axis=0)
+    magnitude = np.linalg.norm(normal)
+    if magnitude == 0 or (require_boundary and (hits.all() or not hits.any())):
+        return np.full(ndim, np.nan)
+    return normal / magnitude
+
+
+def surface_normal(shape, points, *, scale=None):
+    p, single = points_array(points, shape.ndim)
+    if isinstance(shape, TransformedShape):
+        n = shape.inverse.T @ surface_normal(
+            shape.source, shape.inverse @ (p - shape.offset[:, None]), scale=scale
+        )
+    elif isinstance(shape, BALLS):
+        n = p - np.asarray(shape.midpoint)[:, None]
+        if shape.inverted:
+            n = -n
+    elif _is_rounded(shape):
+        n = rounded_box_normal(p, *_centre_half(shape), shape.fillet)
+        if shape.inverted:
+            n = -n
+    elif _is_box(shape):
+        distances = np.concatenate(
+            (
+                abs(p - np.asarray(shape.lower_bound)[:, None]),
+                abs(p - np.asarray(shape.upper_bound)[:, None]),
+            ),
+            axis=0,
+        )
+        face = np.argmin(distances, axis=0)
+        n = np.zeros_like(p)
+        n[face % shape.ndim, np.arange(p.shape[1])] = np.where(face < shape.ndim, -1, 1)
+        if shape.inverted:
+            n = -n
+    elif isinstance(shape, POLYGONS):
+        vertices = _polygon_vertices(shape)
+        segments = np.stack((vertices, np.roll(vertices, -1, axis=0)), axis=1)
+        edges = segments[:, 1] - segments[:, 0]
+        signed_area = np.sum(
+            vertices[:, 0] * np.roll(vertices[:, 1], -1)
+            - vertices[:, 1] * np.roll(vertices[:, 0], -1)
+        )
+        if signed_area == 0:
+            n = np.full_like(p, np.nan)
+        else:
+            outward = np.column_stack((edges[:, 1], -edges[:, 0])) * np.sign(
+                signed_area
+            )
+            n = np.empty_like(p)
+            for i, point in enumerate(p.T):
+                closest = _closest_segments(point, segments)
+                edge = np.argmin(np.sum((closest - point) ** 2, axis=1))
+                n[:, i] = outward[edge]
+            if shape.inverted:
+                n = -n
+    elif has_level_set(shape):
+        # the gradient of the level set points out of the region where it is negative
+        extent = float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
+        scale = extent if scale is None else float(scale)
+        if not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Normal sampling scale must be positive and finite")
+        n = level_set_gradient(shape, p, 1e-7 * scale)
+    else:
+        scale = (
+            float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
+            if scale is None
+            else float(scale)
+        )
+        if not np.isfinite(scale) or scale <= 0:
+            raise ValueError("Normal sampling scale must be positive and finite")
+        n = (
+            np.column_stack(
+                [estimate_surface_normal(shape, point, scale) for point in p.T]
+            )
+            if p.shape[1]
+            else np.empty_like(p)
+        )
+    length = np.linalg.norm(n, axis=0)
+    n = n / np.where(length > 0, length, np.nan)
+    return n[:, 0] if single else n
 
 
 def intersect_segment(shape, start, end, *, samples=256, tolerance=1e-10):
@@ -235,14 +488,6 @@ def intersect_segment(shape, start, end, *, samples=256, tolerance=1e-10):
     )
 
 
-def _closest_segments(p, segments):
-    a, b = segments[:, 0], segments[:, 1]
-    d = b - a
-    denominator = np.sum(d * d, axis=1)
-    t = np.sum((p - a) * d, axis=1) / np.where(denominator > 0, denominator, 1)
-    return a + np.clip(t, 0, 1)[:, None] * d
-
-
 def closest_on_mesh(points, vertices, cells):
     if not len(cells):
         raise ValueError("No surface resolved; enlarge bounds or increase resolution")
@@ -296,6 +541,7 @@ def boundary_points_1d(shape, *, resolution=64, bounds=None):
     return hits.points
 
 
+@sp.profile("simgeometry.closest_point", tags=_PROFILE_TAGS)
 def closest_point(shape, points, *, resolution=64, bounds=None):
     p, single = points_array(points, shape.ndim)
     if isinstance(shape, BALLS):
@@ -304,7 +550,9 @@ def closest_point(shape, points, *, resolution=64, bounds=None):
         unit = delta / np.where(radius > 0, radius, 1)
         unit[0, radius == 0] = 1
         q = np.asarray(shape.midpoint)[:, None] + shape.radius * unit
-    elif isinstance(shape, BOXES):
+    elif _is_rounded(shape):
+        q = rounded_box_closest(p, *_centre_half(shape), shape.fillet)
+    elif _is_box(shape):
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
         q = np.clip(p, lower[:, None], upper[:, None])
         inside = np.all((p >= lower[:, None]) & (p <= upper[:, None]), axis=0)
@@ -343,103 +591,13 @@ def closest_point(shape, points, *, resolution=64, bounds=None):
     return q[:, 0] if single else q
 
 
+@sp.profile("simgeometry.signed_distance", tags=_PROFILE_TAGS)
 def signed_distance(shape, points, *, resolution=64, bounds=None):
     p, single = points_array(points, shape.ndim)
+    if has_level_set(shape) and getattr(shape, "level_set_exact", False):
+        distance = level_values(shape, p)
+        return float(distance[0]) if single else distance
     q = closest_point(shape, p, resolution=resolution, bounds=bounds)
     distance = np.linalg.norm(p - q, axis=0)
     distance = np.where(mask(shape, p), -distance, distance)
     return float(distance[0]) if single else distance
-
-
-def estimate_surface_normal(obj, point, scale, *, require_boundary=True):
-    """Solid-outward unit normal estimated by directional membership samples.
-
-    Set require_boundary=False to retain the original Picnic estimator at
-    periodic image points, including its cancellation behavior away from a surface.
-    """
-    point = np.asarray(point, float)
-    ndim = point.size
-    if ndim == 1:
-        directions = np.asarray([[-1.0], [1.0]])
-    elif ndim == 2:
-        theta = np.linspace(0, 2 * np.pi, 64, endpoint=False)
-        directions = np.column_stack((np.cos(theta), np.sin(theta)))
-    else:
-        indices = np.arange(128, dtype=float) + 0.5
-        z = 1 - 2 * indices / 128
-        theta = np.pi * (1 + np.sqrt(5)) * indices
-        radial = np.sqrt(1 - z * z)
-        directions = np.column_stack(
-            (radial * np.cos(theta), radial * np.sin(theta), z)
-        )
-    epsilon = max(scale * 1e-5, np.finfo(float).eps * 128)
-    hits = mask(obj, point[:, None] + epsilon * directions.T)
-    normal = np.sum(np.where(hits[:, None], -directions, directions), axis=0)
-    magnitude = np.linalg.norm(normal)
-    if magnitude == 0 or (require_boundary and (hits.all() or not hits.any())):
-        return np.full(ndim, np.nan)
-    return normal / magnitude
-
-
-def surface_normal(shape, points, *, scale=None):
-    p, single = points_array(points, shape.ndim)
-    if isinstance(shape, TransformedShape):
-        n = shape.inverse.T @ surface_normal(
-            shape.source, shape.inverse @ (p - shape.offset[:, None]), scale=scale
-        )
-    elif isinstance(shape, BALLS):
-        n = p - np.asarray(shape.midpoint)[:, None]
-        if shape.inverted:
-            n = -n
-    elif isinstance(shape, BOXES):
-        distances = np.concatenate(
-            (
-                abs(p - np.asarray(shape.lower_bound)[:, None]),
-                abs(p - np.asarray(shape.upper_bound)[:, None]),
-            ),
-            axis=0,
-        )
-        face = np.argmin(distances, axis=0)
-        n = np.zeros_like(p)
-        n[face % shape.ndim, np.arange(p.shape[1])] = np.where(face < shape.ndim, -1, 1)
-        if shape.inverted:
-            n = -n
-    elif isinstance(shape, POLYGONS):
-        vertices = _polygon_vertices(shape)
-        segments = np.stack((vertices, np.roll(vertices, -1, axis=0)), axis=1)
-        edges = segments[:, 1] - segments[:, 0]
-        signed_area = np.sum(
-            vertices[:, 0] * np.roll(vertices[:, 1], -1)
-            - vertices[:, 1] * np.roll(vertices[:, 0], -1)
-        )
-        if signed_area == 0:
-            n = np.full_like(p, np.nan)
-        else:
-            outward = np.column_stack((edges[:, 1], -edges[:, 0])) * np.sign(
-                signed_area
-            )
-            n = np.empty_like(p)
-            for i, point in enumerate(p.T):
-                closest = _closest_segments(point, segments)
-                edge = np.argmin(np.sum((closest - point) ** 2, axis=1))
-                n[:, i] = outward[edge]
-            if shape.inverted:
-                n = -n
-    else:
-        scale = (
-            float(np.max(np.asarray(shape.upper_bound) - shape.lower_bound))
-            if scale is None
-            else float(scale)
-        )
-        if not np.isfinite(scale) or scale <= 0:
-            raise ValueError("Normal sampling scale must be positive and finite")
-        n = (
-            np.column_stack(
-                [estimate_surface_normal(shape, point, scale) for point in p.T]
-            )
-            if p.shape[1]
-            else np.empty_like(p)
-        )
-    length = np.linalg.norm(n, axis=0)
-    n = n / np.where(length > 0, length, np.nan)
-    return n[:, 0] if single else n

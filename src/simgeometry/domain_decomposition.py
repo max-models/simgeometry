@@ -1,9 +1,13 @@
 """Process grid of the MPI ranks and the physical subdomain each one owns.
 
 The process grid decides which rank owns which part of the domain. It is used for
-particles (:meth:`DomainDecomposition.owner_ranks`) and, through
-:meth:`DomainDecomposition.layout`, for the :class:`mpiarray.DistributedArray` of the
+particles (`DomainDecomposition.owner_ranks`) and, through
+`DomainDecomposition.layout`, for the `mpiarray.DistributedArray` of the
 fields, so that markers and fields agree on who owns what.
+
+`DomainDecomposition.preview` builds the decomposition of a parallel run
+without a communicator, for inspection and planning; `DomainDecomposition.show_3d`
+and `DomainDecomposition.show` draw its subdomains.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import cunumpy as xp
 import mpiarray as mpa
 import numpy as np
 from maybempi import MPI
+from methodcard import method
 
 Layout = Literal["component_major", "particle_major"]
 """Axis order of a positions array: ``(ndim, n)`` or ``(n, ndim)``."""
@@ -28,7 +33,7 @@ class PositionDecomposition(Protocol):
     The bounds of the domain are already bound in, so a container only passes
     positions. ``positions`` have shape ``(ndim, n)`` (component-major). This is
     the structural interface of the object returned by
-    :meth:`DomainDecomposition.position_decomposition`; other decompositions
+    `DomainDecomposition.position_decomposition`; other decompositions
     can implement it without importing simgeometry.
     """
 
@@ -46,7 +51,7 @@ class PositionDecomposition(Protocol):
 
 
 class _BoundPositionDecomposition:
-    """A :class:`DomainDecomposition` with the grid bounds bound in."""
+    """A `DomainDecomposition` with the grid bounds bound in."""
 
     def __init__(
         self,
@@ -87,6 +92,23 @@ class _BoundPositionDecomposition:
         return self._decomposition.owned_mask(positions, *self._grid, layout=layout)
 
 
+@method(
+    equations={
+        "rank": r"\text{rank} = \sum_i c_i \prod_{j > i} P_j",
+        "neighbours": r"c_i \pm 1, \text{ wrapped modulo } P_i \text{ on a periodic axis, else } \texttt{MPI.PROC\_NULL}",
+        "node_cuts": r"\mathrm{cut}_c = c \left\lfloor \frac{N_i}{P_i} \right\rfloor + \min(c, N_i \bmod P_i), \qquad \text{block } c \text{ owns nodes } [\mathrm{cut}_c, \mathrm{cut}_{c+1})",
+        "edges": r"e_c = l + \mathrm{cut}_c\, h, \qquad e_0 = l, \quad e_{P_i} = u, \qquad \text{block } c \text{ owns } [e_c, e_{c+1})",
+        "owner": r"c_i(x) = \#\{k = 1, \dots, P_i - 1 : e_k \le x_i\}",
+    },
+    assumptions=(
+        r"the process grid $P$ from `calculate_proc_sizes`; row-major ranks, as mpiarray places them",
+        r"$h$ over $N - 1$ cells on a bounded axis, $N$ on a periodic one; the first $N_i \bmod P_i$ blocks are one node longer (mpiarray's `chunk_bounds`)",
+        r"a position below $l$ goes to block 0, one at or above $e_{P-1}$ (also $u$ and NaN) to the last block",
+        "replicated (more than one rank, one block): every rank holds everything at process coordinate 0; its neighbours are itself on periodic axes",
+        "fields (`layout`) and markers (`owner_ranks`) share the one split",
+    ),
+    components=("simgeometry.domain_decomposition.calculate_proc_sizes",),
+)
 class DomainDecomposition:
     """Represent the MPI process grid of a decomposed domain."""
 
@@ -228,21 +250,20 @@ class DomainDecomposition:
                     active_decomposition[j] = False
                     break
 
-    def __init__(
+    def _setup(
         self,
         comm: MPI.Comm | None,
-        decompose: list[bool] | None = None,
-        periodic: tuple[bool, ...] | None = None,
-        ndim: int | None = None,
+        size: int,
+        rank: int,
+        decompose: list[bool] | None,
+        periodic: tuple[bool, ...] | None,
+        ndim: int | None,
+        proc_sizes: list[int] | None = None,
     ) -> None:
-        """Initialize the process grid of ``comm`` for the decomposed axes."""
+        """Build the process grid of ``size`` ranks, as seen from ``rank``."""
         self._comm = comm
-        if self.comm is None:
-            self._mpi_size = 1
-            self._mpi_rank = 0
-        else:
-            self._mpi_size = comm.Get_size()
-            self._mpi_rank = comm.Get_rank()
+        self._mpi_size = size
+        self._mpi_rank = rank
 
         assert ndim is not None or decompose is not None, (
             "DomainDecomposition must take either ndim or decompose!"
@@ -263,7 +284,10 @@ class DomainDecomposition:
         self._periodic = tuple(periodic)
         assert len(self.periodic) == self.ndim
 
-        self._proc_sizes = self._calculate_proc_sizes()
+        if proc_sizes is None:
+            self._proc_sizes = self._calculate_proc_sizes()
+        else:
+            self._proc_sizes = list(proc_sizes)
 
         # With no decomposed axis the process grid has a single slot and every
         # rank holds the whole domain; all ranks then share process coordinate 0.
@@ -282,13 +306,105 @@ class DomainDecomposition:
         else:
             self._neighbour_ranks = self._calculate_neighbor_ranks()
 
+    def __init__(
+        self,
+        comm: MPI.Comm | None,
+        decompose: list[bool] | None = None,
+        periodic: tuple[bool, ...] | None = None,
+        ndim: int | None = None,
+    ) -> None:
+        """Initialize the process grid of ``comm`` for the decomposed axes.
+
+        Without a communicator (``comm=None``) there is a single process. To
+        inspect the split of a parallel run without one, use `preview`.
+        """
+        if comm is None:
+            size, rank = 1, 0
+        else:
+            size, rank = comm.Get_size(), comm.Get_rank()
+        self._setup(comm, size, rank, decompose, periodic, ndim)
+
+    @classmethod
+    def preview(
+        cls,
+        size: int | None = None,
+        *,
+        proc_sizes: Sequence[int] | None = None,
+        decompose: Sequence[bool] | None = None,
+        periodic: Sequence[bool] | None = None,
+        ndim: int | None = None,
+        rank: int = 0,
+    ) -> DomainDecomposition:
+        """Return the decomposition a ``size``-rank run would use, without a communicator.
+
+        This is for inspection and planning, e.g. to draw the subdomains in
+        the docs (`show_3d`, `show`) or to check the local array
+        sizes of a run before launching it. Nothing communicates: the result
+        has no communicator (``comm`` is ``None``) and `layout` raises.
+
+        With ``size``, the processes per axis are chosen exactly as for a
+        communicator of that size, so ``proc_sizes``, the index ranges and the
+        subdomains are those of the real run. Alternatively, ``proc_sizes``
+        fixes the processes per axis directly (the axes with more than one are
+        then the decomposed ones, unless ``decompose`` says otherwise).
+
+        The decomposition is seen from ``rank`` (``mpi_rank``,
+        ``neighbour_ranks``, ``proc_coord``, ``owned_mask``). The read-only
+        queries that take a rank, or return one per position, work for every
+        rank: `get_index_bounds`, `subdomain_bounds`,
+        `subdomain_boxes`, `get_proc_coord`, `owner_ranks`.
+
+        Example:
+            >>> preview = DomainDecomposition.preview(8, decompose=[True] * 3)
+            >>> preview.proc_sizes
+            [2, 2, 2]
+            >>> preview.get_index_bounds((9, 9, 9), rank=7)
+            [(5, 9), (5, 9), (5, 9)]
+        """
+        if proc_sizes is not None:
+            proc_sizes = [int(p) for p in proc_sizes]
+            if any(p < 1 for p in proc_sizes):
+                raise ValueError(f"proc_sizes must be positive, got {proc_sizes}")
+            if ndim is not None and ndim != len(proc_sizes):
+                raise ValueError(f"proc_sizes {proc_sizes} do not have {ndim} axes")
+            ndim = len(proc_sizes)
+            if decompose is None:
+                decompose = [p > 1 for p in proc_sizes]
+            if any(p > 1 and not d for p, d in zip(proc_sizes, decompose)):
+                raise ValueError(
+                    f"proc_sizes {proc_sizes} split an axis that decompose "
+                    f"{list(decompose)} does not"
+                )
+            total = math.prod(proc_sizes)
+            if size is None:
+                size = total
+            elif total not in (1, size):
+                raise ValueError(f"proc_sizes {proc_sizes} do not multiply to {size}")
+        if size is None:
+            raise ValueError("Pass size or proc_sizes")
+        if size < 1:
+            raise ValueError(f"size must be positive, got {size}")
+        if not 0 <= rank < size:
+            raise ValueError(f"rank {rank} is not in [0, {size})")
+        decomposition = cls.__new__(cls)
+        decomposition._setup(
+            None,
+            int(size),
+            int(rank),
+            None if decompose is None else list(decompose),
+            None if periodic is None else tuple(periodic),
+            ndim,
+            proc_sizes,
+        )
+        return decomposition
+
     def layout(
         self,
         shape: tuple[int, ...],
         halo: int | Sequence[int] = 0,
         periodic: Sequence[bool] | None = None,
     ) -> mpa.Layout:
-        """Return the :class:`mpiarray.Layout` of an array of ``shape`` on this process grid.
+        """Return the `mpiarray.Layout` of an array of ``shape`` on this process grid.
 
         Axes after ``ndim`` (for example the component axis of a field) are not
         split. ``periodic`` defaults to this decomposition's flags, padded with
@@ -299,6 +415,11 @@ class DomainDecomposition:
             raise ValueError(f"shape {shape} has fewer than {self.ndim} axes")
         if periodic is None:
             periodic = (*self.periodic, *([False] * extra))
+        if self.is_preview:
+            raise ValueError(
+                "A preview has no communicator, so it has no array layout; use "
+                "get_index_bounds() or node_cuts() for the index ranges"
+            )
         comm = MPI.COMM_SELF if self.comm is None else self.comm
         if self.replicated:
             # No axis is split: every rank holds the whole array.
@@ -318,8 +439,8 @@ class DomainDecomposition:
 
         ``(0, c1, ..., n)`` along a split axis (process coordinate ``c`` owns
         nodes ``cuts[c] <= i < cuts[c + 1]``), ``None`` along the others. This
-        is the one split of the grid: the field arrays (:meth:`layout`), the
-        solver's matrix rows and the markers (:meth:`subdomain_edges`) all
+        is the one split of the grid: the field arrays (`layout`), the
+        solver's matrix rows and the markers (`subdomain_edges`) all
         follow it.
         """
         if len(shape) != self.ndim:
@@ -374,12 +495,12 @@ class DomainDecomposition:
     ) -> list[float]:
         """Return the ``proc_sizes[dim] + 1`` edges of the subdomains along one axis.
 
-        The edges sit on the nodes where :meth:`node_cuts` splits the
+        The edges sit on the nodes where `node_cuts` splits the
         ``num_nodes`` nodes of the axis (``n - 1`` cells over ``[lower,
         upper]``, ``n`` on a periodic axis). Process coordinate ``c`` owns
         ``[edges[c], edges[c + 1])``, the cells whose lower node it owns; the
         last one also owns ``upper`` and everything beyond, the first
-        everything below ``lower`` (see :meth:`owner_ranks`).
+        everything below ``lower`` (see `owner_ranks`).
         """
         num_procs = self.proc_sizes[dim]
         if num_procs == 1 or self.replicated:
@@ -425,6 +546,100 @@ class DomainDecomposition:
         if len(num_gridpoints) != self.ndim:
             raise ValueError("num_gridpoints must match decomposition dimensions")
 
+    def subdomain_boxes(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+    ) -> list[tuple[tuple[float, ...], tuple[float, ...]]]:
+        """Return the physical ``(lower, upper)`` corners of every rank's subdomain.
+
+        Entry ``r`` is `subdomain_bounds` of rank ``r``, for all
+        ``mpi_size`` ranks. The boxes tile the domain without gaps or overlaps
+        (when no axis is decomposed, every rank holds the whole domain).
+        """
+        self._check_grid(lower_bound, upper_bound, num_gridpoints)
+        grid = (tuple(lower_bound), tuple(upper_bound), tuple(num_gridpoints))
+        return [self.subdomain_bounds(rank, *grid) for rank in range(self.mpi_size)]
+
+    def show_3d(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+        *,
+        shape: Any = None,
+        opacity: float = 0.25,
+        shape_opacity: float = 1.0,
+        resolution: int = 48,
+        legend: bool | None = None,
+        plotter: Any = None,
+        display: bool = True,
+        save: str | None = None,
+    ) -> Any:
+        """Draw every rank's subdomain as a translucent box, coloured by rank.
+
+        Needs the ``interactive`` extra (PyVista and plasma-plots). The boxes
+        are drawn with ``plasma_plots.pyvista_plots.pyvista_surfaces``, one
+        mesh per rank labelled ``"rank r"``, with their edges. ``shape`` (a 3D
+        shape or collection) is drawn inside them. ``legend=None`` shows the
+        rank legend for up to 16 ranks and colours by a ``rank`` scalar bar
+        above that. Returns the ``pyvista.Plotter``; it is shown only with
+        ``display=True``, and ``save`` writes a screenshot. Combine it with
+        `preview` to see the split of a parallel run; no MPI operation is
+        performed.
+        """
+        from simgeometry._decomposition_views import show_decomposition_3d
+
+        return show_decomposition_3d(
+            self,
+            lower_bound,
+            upper_bound,
+            num_gridpoints,
+            shape=shape,
+            opacity=opacity,
+            shape_opacity=shape_opacity,
+            resolution=resolution,
+            legend=legend,
+            plotter=plotter,
+            display=display,
+            save=save,
+        )
+
+    def show(
+        self,
+        lower_bound: Sequence[float],
+        upper_bound: Sequence[float],
+        num_gridpoints: Sequence[int],
+        *,
+        shape: Any = None,
+        ax: Any = None,
+        opacity: float = 0.35,
+        labels: bool = True,
+        display: bool = True,
+        save: str | None = None,
+    ) -> Any:
+        """Draw a 2D decomposition with Matplotlib: one rectangle per rank.
+
+        Each subdomain is filled in its rank's colour and labelled with its
+        rank (``labels``); ``shape`` (a 2D shape or collection) is outlined on
+        top. Returns the Matplotlib axes. No MPI operation is performed.
+        """
+        from simgeometry._decomposition_views import show_decomposition_2d
+
+        return show_decomposition_2d(
+            self,
+            lower_bound,
+            upper_bound,
+            num_gridpoints,
+            shape=shape,
+            ax=ax,
+            opacity=opacity,
+            labels=labels,
+            display=display,
+            save=save,
+        )
+
     def _components(self, positions: Any, layout: Layout) -> Any:
         """Return ``positions`` as a float ``(ndim, n)`` array on the active backend."""
         if layout not in ("component_major", "particle_major"):
@@ -459,10 +674,10 @@ class DomainDecomposition:
         ``layout="particle_major"``. The layout is never guessed, so ``n ==
         ndim`` is not ambiguous. The result is an ``int64`` array of shape
         ``(n,)`` in the same memory as ``positions``; ranks are row-major over
-        :attr:`proc_sizes`.
+        `proc_sizes`.
 
         Along each axis the subdomains are the blocks of
-        :meth:`subdomain_edges`: block ``c`` owns ``[edges[c], edges[c + 1])``.
+        `subdomain_edges`: block ``c`` owns ``[edges[c], edges[c + 1])``.
         **Out-of-range rule**: a position below the lower bound belongs to the
         first block and one at or above the upper edge (including exactly the
         upper bound) to the last block, that is, the block index is clipped into
@@ -501,7 +716,7 @@ class DomainDecomposition:
         num_gridpoints: Sequence[int],
         layout: Layout = "component_major",
     ) -> Any:
-        """Return which positions this rank owns, by the rule of :meth:`owner_ranks`.
+        """Return which positions this rank owns, by the rule of `owner_ranks`.
 
         Equal to ``owner_ranks(...) == mpi_rank`` (every rank owns everything
         when no axis is decomposed), but only two comparisons per decomposed
@@ -542,7 +757,7 @@ class DomainDecomposition:
         upper_bound: tuple[float, ...],
         num_gridpoints: tuple[int, ...],
     ) -> int:
-        """Return the rank owning one physical position (see :meth:`owner_ranks`)."""
+        """Return the rank owning one physical position (see `owner_ranks`)."""
         self._check_grid(lower_bound, upper_bound, num_gridpoints)
         point = xp.asarray(position, dtype=float).reshape(-1, 1)
         owners = self.owner_ranks(point, lower_bound, upper_bound, num_gridpoints)
@@ -556,7 +771,7 @@ class DomainDecomposition:
     ) -> PositionDecomposition:
         """Return this decomposition with the grid bounds bound in.
 
-        The result implements :class:`PositionDecomposition` (``comm``,
+        The result implements `PositionDecomposition` (``comm``,
         ``rank``, ``size``, ``owners(positions)``, ``owned_mask(positions)``),
         which is what a particle container needs; it does not change when the
         bounds argument sequences are mutated afterwards.
@@ -591,6 +806,11 @@ class DomainDecomposition:
         return self._decompose
 
     @property
+    def is_preview(self) -> bool:
+        """Return whether this is a `preview` of several ranks, without a communicator."""
+        return self.comm is None and self.mpi_size > 1
+
+    @property
     def replicated(self) -> bool:
         """Return whether every rank holds the whole domain (no decomposed axis)."""
         return self._replicated
@@ -616,6 +836,17 @@ class DomainDecomposition:
         return self._periodic
 
 
+@method(
+    equations={
+        "search": r"P_i = \operatorname{round}\!\big(S_\mathrm{rem}^{1/k}\big), \text{ lowered until } P_i \mid S_\mathrm{rem}; \qquad S_\mathrm{rem} \leftarrow S_\mathrm{rem} / P_i, \quad k \leftarrow k - 1",
+    },
+    assumptions=(
+        r"$S$ ranks, $k$ the number of active (decomposed) axes, taken in order with $S_\mathrm{rem} = S$ at the start",
+        r"the last active axis gets $S_\mathrm{rem}$, so $\prod P_i = S$ and the search never restarts or fails",
+        "no axis decomposed: all ranks on the first decomposed axis (all ones when none is)",
+        r"not balanced across axes: 6 ranks in 3D give $(2, 1, 3)$, 16 give $(2, 2, 4)$",
+    ),
+)
 def calculate_proc_sizes(size: int, domain_decomposition: list[bool]) -> list[int]:
     """
     Calculate the optimal number of processes in each dimension based on the

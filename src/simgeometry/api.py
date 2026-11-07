@@ -29,7 +29,8 @@ class GeometryAPI:
         Scalars fix axes, sequences form a tensor product, and DataArrays with
         shared dimension names describe scattered points. Unspecified axes use
         grid nodes, or ``resolution`` samples across ``bounds``/the shape bounds.
-        ``quantity`` is occupancy, labels (collections), or signed_distance.
+        ``quantity`` is occupancy, labels (collections), signed_distance, or
+        level_set (the analytic level set, or the signed distance without one).
         This is a local host operation, with no implicit MPI collectives.
         """
         from simgeometry.evaluation import evaluate
@@ -44,6 +45,16 @@ class GeometryAPI:
             resolution=resolution,
             quantity=quantity,
         )
+
+    def level_set_field(self, *, resolution=64, bounds=None):
+        """The level set on a 3D grid, laid out for plasma-plots' 3D views.
+
+        ``shape.level_set_field().plasma.plot.isosurface(values=[0])`` draws the
+        surface (requires the ``interactive`` extra and ``import plasma_plots``).
+        """
+        from simgeometry.evaluation import level_set_field
+
+        return level_set_field(self, resolution=resolution, bounds=bounds)
 
     def slice(self, *, x=None, y=None, z=None, origin=None, normal=None):
         """Return a queryable section with local-to-world coordinate mappings.
@@ -126,15 +137,6 @@ class GeometryAPI:
 
         return BooleanShape(self, other, "difference")
 
-    def __or__(self, other):
-        return self.union(other)
-
-    def __and__(self, other):
-        return self.intersection(other)
-
-    def __sub__(self, other):
-        return self.difference(other)
-
     def intersect_segment(self, start, end, *, samples=256, tolerance=1e-10):
         """Return ordered surface hits, including multiple crossings and tangencies.
 
@@ -151,11 +153,12 @@ class GeometryAPI:
         """First boundary crossing of every segment ``start[:, i] -> end[:, i]``.
 
         ``start`` and ``end`` are ``(ndim, N)``, such as particle positions before and
-        after a step. Returns a :class:`~simgeometry.crossings.Crossings` with ``hit``,
+        after a step. Returns a `Crossings` with ``hit``,
         ``fraction``, ``point`` and ``normal`` (out of the region where ``contains`` is
         true) on the active array backend. Polygons, circles, spheres, boxes and their
         affine transforms are analytic; other shapes sample ``samples`` points per
-        segment and bisect ``iterations`` times.
+        segment and bisect ``iterations`` times, or refine on their level set (with its
+        gradient as the normal) if they have one.
         """
         from simgeometry.crossings import crossings
 
@@ -175,7 +178,9 @@ class GeometryAPI:
     def signed_distance(self, points, *, resolution=64, bounds=None):
         """Distance to the boundary, negative inside, positive outside.
 
-        Exact for balls, boxes and simple polygons; otherwise distance to the
+        Exact for balls, boxes, simple polygons and every shape whose level set is
+        exact (``level_set_exact``, such as cylinders, tubes, cones, tori and their
+        rigid motions), which it returns directly; otherwise distance to the
         sampled surface mesh. A membership function is not itself a distance.
         """
         from simgeometry.queries import signed_distance
@@ -245,3 +250,21 @@ class GeometryAPI:
         from simgeometry.fractions import cell_fractions
 
         return cell_fractions(self, grid, samples_per_axis=samples_per_axis)
+
+    def yee_fractions(self, grid, **kwargs):
+        """Edge-length and face-area fractions of a Yee grid, and the surface's traces.
+
+        Exact for planes; see `simgeometry.fractions.yee_fractions`.
+        """
+        from simgeometry.fractions import yee_fractions
+
+        return yee_fractions(self, grid, **kwargs)
+
+    def __sub__(self, other):
+        return self.difference(other)
+
+    def __and__(self, other):
+        return self.intersection(other)
+
+    def __or__(self, other):
+        return self.union(other)

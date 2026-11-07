@@ -5,8 +5,98 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-07
+
 ### Added
 
+- One example page per object of `simgeometry.objects`, from `Line` to `Helix`
+  (`tutorials/objects/`, the Objects group of the Examples): how to build it, membership,
+  level set and a figure.
+- `Helix(start, radius, pitch, turns, wire_radius, axis=..., left_handed=...)`: a helical
+  wire of round cross-section with hemispherical ends, e.g. the winding of an RF coil. Its
+  level set is the distance from the centreline (Newton steps along it from the
+  linearised minima of the nearest turns), exact within a wire radius of the wire and a
+  bound farther away; `centreline(t)`, `wire_length`, volume and surface area.
+- `PolarRepeat(source, count, axis=..., origin=...)`: ``count`` copies of a 3D shape about
+  an axis, evaluated by folding the point's angle into the first sector, so its cost does
+  not grow with ``count`` (the slits of a Faraday shield: ``tube - PolarRepeat(slit, 24)``;
+  the cut cells of 24 slits as fast as of one).
+- A Numerics section in the docs (header and sidebar): an overview of the geometry
+  (`docs/src/content/docs/numerics/index.mdx`, with the main cards) and one page per module,
+  from the shapes to the grids (starlight-theme's `methodcard: { pages: true }`).
+- Method cards (methodcard) on the geometry: the inside tests and level sets of every shape
+  (line, circle, sphere, boxes with fillets, polygons by the even-odd rule, triangles,
+  apertures, the solids of revolution and the slanted tube), the Boolean, affine and section
+  level sets, collections, outlines and boundary panels, the first crossings (analytic and
+  sampled, Illinois), the swept polygon hit test and absorption, the edge crossings, cut edges
+  and cut-cell fractions, the grid, the domain decomposition and the particle boundaries,
+  with their assumptions and references. `test_method_cards.py` checks them: SymPy rules for
+  19 closed forms, the observed order of `outlines`, `crossings` and
+  `intersection_fractions`, and the cards of the docs against those of the code. Adds the
+  `methodcard` dependency.
+- `simgeometry.polygon_objects`: `polygon_objects(objects)` packs `Polygon` and
+  `Aperture2D` objects into flat arrays, and `PolygonObjects.absorb(positions, alive,
+  start=...)` absorbs the markers that end inside one or whose step crosses one of its
+  edges, exactly, with the object each marker hit first. The kernel
+  `simgeometry.kernels.absorb_polygons_2d` (Pyccel, NumPy, CUDA) and the shared hit test
+  (`polygon_hit.cuh`, `polygon_hits.py`) moved here from picnic, so picnic and tree-d-3d use
+  one implementation.
+- `shape.yee_fractions(grid)` (`simgeometry.fractions.yee_fractions`): the cut-cell
+  geometry of a Yee grid in 2D and 3D, for conformal (Dey–Mittra-type) field solvers: the
+  fraction of every edge's length and every face's area inside the shape, the length of the
+  surface's trace in every face and that length weighted by the sine between the surface
+  and the face. Exact for planes; for curved surfaces second order (a circle's area and
+  perimeter, a sphere's area from the traces). Edges use all crossings, so slits narrower
+  than a cell are kept; walls on grid lines count like a staircase. Works for every shape
+  `crossings` supports, sampled where it is not analytic.
+- `SlantedTube(start, end, inner_radius, outer_radius, cut_normal)`: a tube (a rod with
+  `inner_radius=0`) along any axis whose end at `end` is cut by the plane through `end`
+  with the outward normal `cut_normal`, such as an oven nozzle cut at 45°. Membership,
+  bounds, volume and surface area are exact; the level set is the larger of the distances
+  to the uncut tube and to the cut plane (exact on the faces, a bound near the cut's rim);
+  `crossings` are analytic (both walls, the flat end and the cut), so particles in a thin
+  duct find every wall. Meshes, `show_3d`, node masks and conductors work as for the other
+  solids. The tutorial "Shapes and node masks" shows one.
+
+- `Rectangle(..., fillet=r)`: a rectangle with rounded corners, up to a stadium at half
+  the shorter side; `Cuboid(..., fillet=r)` rounds the edges and corners of a box, like
+  the `fillet` of the solids of revolution. Both keep the exact level set (the rounded
+  box distance), analytic `crossings`, segment intersections, closest points and
+  normals; the outline is straight edges and arcs, refined by `max_spacing`. The
+  tutorial "Shapes and node masks" shows them.
+- `show_3d(points=...)` overlays labelled point sets, e.g. samples, grid nodes or
+  crossings: an array in the `(3, n)` layout (or `(n, 3)`), or a dict of label to array or
+  to `{"points", "vectors", "color", "size"}`, with optional arrows such as normals. The
+  PyVista backend draws them with plasma-plots' `pyvista_points` in the same legend as the
+  objects (needs `plasma-plots>=0.2.5`); Matplotlib uses `scatter` and `quiver`. The
+  tutorials "Shapes and node masks" and "Sampling, export and diagnostics" use it.
+- `Section.outlines(max_spacing, resolution=, bounds=, world=)`: the sampled boundary loops of a
+  plane section in plane coordinates (holes clockwise), or on the plane in 3D with
+  `world=True`; `Section.show_3d()` draws the sliced shape, the cutting plane and the outline in
+  3D (Matplotlib or PyVista). The tutorial "Slices and coordinate sampling" uses it.
+- `DomainDecomposition.preview(size, decompose=..., periodic=..., rank=...)` (or
+  `proc_sizes=`): the decomposition a `size`-rank run would use, without a communicator, for
+  inspection and planning; `subdomain_boxes(...)` returns every rank's subdomain corners,
+  `show_3d(...)` draws them as boxes coloured by rank (plasma-plots, optional `shape=`) and
+  `show(...)` as rectangles in 2D. The tutorial "Parallel grids" shows an 8-rank scene.
+- `bracketed_edge_geometry(...).points` and `.normals`: the crossings in world coordinates
+  and the outward normals there, `(ndim, n)` like `cut_edges()`; `crossing_owners` indexes
+  each crossing's object. `BracketedEdgeGeometry` now keeps `spacing`, `periodic` and
+  `objects`, and `CutEdges` its `geometry`.
+- `CutEdges.show_3d()` and `BracketedEdgeGeometry.show_3d()`: the translucent surface, the
+  crossings and, optionally, the outward normals and solid nodes in 3D (PyVista or
+  Matplotlib). The tutorials "Grid intersections and cut edges" and "Conductors and level
+  sets" use them.
+- The PyVista backend of `show_3d` draws the surfaces with plasma-plots' `pyvista_surfaces`
+  (plasma-plots is now part of the `interactive` extra); `color_by="voltage"` colours a
+  collection's conductors by their voltage at time `t`.
+- `level_set_field()`: the level set on a grid in the layout of plasma-plots' 3D views, for
+  `field.plasma.plot.isosurface(...)`; `evaluate(quantity="level_set")`.
+- Interactive 3D scenes in the tutorials "Inspecting geometry" and "Conductors and level
+  sets" (starlight-theme v0.5.0, `plasma_plots.scene`).
+- More interactive 3D scenes in the tutorials: the new solids and a 3D node mask, 3D
+  transforms and Booleans, an oblique slice through a shell, interior and surface samples,
+  3D cut edges with normals, the level set of a slotted electrode and its grid-edge crossings.
 - `DomainDecomposition.owner_ranks(positions, lower_bound, upper_bound, num_gridpoints,
   layout)` and `owned_mask(...)`: vectorised position-to-rank lookup for NumPy and CuPy arrays
   (`(ndim, n)` by default, `layout="particle_major"` for `(n, ndim)`).
@@ -32,9 +122,34 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `Aperture2D.slit(...)`: two rectangular plates. `exact_outline` and `closed` flags on 2D
   shapes.
 - The tutorial covers holes, polylines, panels and crossings.
+- scope-profiler regions for the expensive operations (`simgeometry.node_mask`,
+  `simgeometry.crossings`, `simgeometry.to_mesh`, ...), off unless the application enables
+  the `simgeometry` tag (`sp.setup(enable_tags=["simgeometry"])`). scope-profiler is now a
+  runtime dependency.
+- `shape.level_set(points)`: an analytic level set, negative inside and positive outside like
+  `signed_distance`, with `has_level_set` and `level_set_exact` (the Euclidean signed
+  distance). Exact for lines, circles, spheres, rectangles, cuboids, polygons, triangles,
+  apertures and the new solids; Booleans combine level sets by min/max, transforms scale
+  them by their smallest stretch (exact for rigid motions and uniform scaling), sections and
+  collections pass them on. Function objects and `Aperture3D` have none.
+- `Cylinder`, `Tube` (hollow cylinder), `Cone` (frustum, or cone with one radius 0) and
+  `Torus`, along any axis, with exact level sets, volumes, surface areas and tight bounding
+  boxes; `fillet=` rounds the edges of cylinders and tubes.
+- Conductors on `GeometryCollection`: `voltages={name: value or function of t}`,
+  `with_voltages(...)` (same geometry, other voltages), `voltages_at(t)`, `conductors`, and
+  `dirichlet_values(grid or points, t=...)` with the label and voltage of each node
+  (`DirichletValues`; NaN outside conductors).
+- Tutorial "Conductors and level sets": an Einzel lens of three ring electrodes with voltages.
+- `benchmarks/level_set_crossings.py`: edge crossings on level sets against bisection.
 
 ### Changed
 
+- Requires cunumpy 0.7.1 or newer, for its `KernelPackage`.
+- The kernels are built with cunumpy's `KernelPackage`
+  (`simgeometry.kernels.KERNEL_PACKAGE`): `kernels/_build.py`, `kernels/_metal.py` and
+  `kernels/compile.py` are gone, and the build cache is still `SIMGEOMETRY_KERNEL_CACHE`.
+- `__version__` is read from the installed package metadata (`importlib.metadata`), not hardcoded,
+  so it can no longer disagree with `pyproject.toml` (the 0.1.1 wheel reported 0.1.0).
 - One out-of-range rule for owners: per axis, positions below the lower bound belong to the
   first block and positions at or above the upper edge to the last (the block index is clipped).
   `owner_rank_for_position` now calls `owner_ranks`; positions below the lower bound used to go
@@ -44,6 +159,16 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   for `axis=0`.
 - 2D shapes have no `get_vertices()` any more; use `outlines()`, which returns `(2, n)`
   arrays. `PointList` and `Point` are gone.
+- `intersection_fractions` (and so `bracketed_edge_geometry`) refines crossings of shapes with
+  a level set by linear interpolation and Illinois steps on it, about 8 evaluations per edge
+  instead of 50 (2.5 to 3.3 times faster on NumPy, equally accurate); edges without a sign
+  change of the level set are bisected as before. A level-set crossing is the root itself, not
+  the end of the last bisection interval inside the object.
+- The sampled paths of `cut_edges`/`intersect_segment` and `crossings` refine on the level set
+  when there is one; `crossings` then takes its normal from the level-set gradient, as does
+  `surface_normal`. `signed_distance` returns an exact level set directly, and `to_mesh`
+  contours the level set of any shape that has one (it did so for balls and boxes only).
+- The `FunctionObject3D` example is a rounded cube; use `Torus` for a torus.
 
 ### Removed
 
@@ -52,6 +177,9 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The docstrings render on the API pages: code spans instead of the reST roles (`:func:`,
+  `:class:`, `:meth:`, ...).
+- `Cuboid` keeps its bounds as host floats, so its `crossings` work on CuPy.
 - `Polygon.contains_points` with the compiled kernels accepts vertices that are not
   C-ordered (a transposed `(2, n)` array).
 - `Aperture2D` documents its `axis` as `0` or `1` and its vertices as `(axial, radial)`.

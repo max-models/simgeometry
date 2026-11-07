@@ -6,7 +6,7 @@ description: Publish the package to PyPI and the documentation to GitHub Pages.
 ## Documentation
 
 The `Docs` workflow builds the site on every push and pull request to `main` and `devel`. It
-executes the tutorials, generates the API reference and uploads the site. Pushes to `devel`
+executes the notebooks, generates the API reference and uploads the site. Pushes to `devel`
 also deploy it to GitHub Pages at https://max-models.github.io/simgeometry/.
 
 Enable GitHub Pages once in the repository settings, with "GitHub Actions" as the source.
@@ -32,6 +32,16 @@ to `CHANGELOG.md`. On every push to `main`, the `Release` workflow:
    - **Environment name**: `pypi`
 3. Optionally, in the GitHub repository settings create an environment named `pypi` whose
    deployment branches are limited to `main`.
+
+### Development against the devel branches
+
+Pull requests to `devel` test against the devel branches of the max-models packages simgeometry
+depends on (`cunumpy`, `maybempi` and `mpiarray`), pinned in `uv.lock` through
+`[tool.uv.sources]`. Pull requests to `main` and the release use PyPI only (CI sets
+`UV_NO_SOURCES`), and on them the `Test Pytest` workflow fails if the built wheel has a direct
+reference (`name @ git+...`), which PyPI rejects. Refresh the pinned devel commits with `uv lock
+--upgrade-package cunumpy`, and reproduce a run against PyPI with `UV_NO_SOURCES=true uv sync
+--extra test` (it rewrites `uv.lock`, so `git restore uv.lock` afterwards).
 
 ### Coverage
 

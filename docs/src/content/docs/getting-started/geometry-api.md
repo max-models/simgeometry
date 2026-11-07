@@ -4,7 +4,7 @@ description: Plotting, sections, labelled sampling, surface queries and cut-edge
 ---
 
 Install `simgeometry[plot]` for plotting, evaluation and surface meshing, or
-`simgeometry[interactive]` for the optional PyVista viewer. The base package keeps
+`simgeometry[interactive]` for the optional PyVista viewer, drawn with plasma-plots. The base package keeps
 NumPy, cunumpy, maybempi and mpiarray as its only runtime dependencies.
 
 ```python
@@ -17,6 +17,7 @@ shell = Sphere((0, 0, 0), 1) - Sphere((0, 0, 0), 0.4)
 shell.show_3d(opacity=0.5)
 shell.show(z=0.2)
 shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
+shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show_3d(backend="pyvista")
 ```
 
 ## Coordinates and return values
@@ -25,6 +26,7 @@ shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
 | --- | --- | --- |
 | `contains(point)` | One coordinate vector | Boolean |
 | `contains_points(points)` | `(ndim, n)` array | Boolean array on the selected cunumpy backend |
+| `level_set(points)` | `(ndim, n)` array | Signed level set on the selected cunumpy backend, negative inside |
 | `evaluate(x=..., y=..., z=...)` | Scalars, coordinate sequences or DataArrays | Host `xarray.DataArray` |
 | `node_mask(grid)` | Grid | Host boolean array with grid shape |
 | `slice(z=value)` | One fixed coordinate | Queryable section |
@@ -35,6 +37,8 @@ shell.slice(origin=(0, 0, 0), normal=(1, 1, 1)).show()
 | `intersect_segment(start, end)` | Two coordinate vectors | Ordered hits, fractions, normals and crossing directions |
 | `cut_edges(grid)` | Grid | All detected edge hits with object identities |
 | `cell_fractions(grid)` | Grid | Approximate solid volume and face fractions |
+| `yee_fractions(grid)` | Grid | Edge-length and face-area fractions of a Yee grid and the surface's traces, exact for planes |
+| `collection.dirichlet_values(grid, t=...)` | Grid or `(ndim, n)` | Host labels and voltages; NaN outside conductors |
 | `to_mesh()` | Resolution and optional bounds | Vertices, connectivity, centres, normals and sampling spacing |
 
 Inspection and meshing run on the calling process and do not implicitly gather
@@ -56,6 +60,13 @@ Axis-aligned sections retain remaining world-coordinate names. For example,
 `sphere.slice(x=0).evaluate(y=ys, z=zs)` samples a yz plane. Oblique sections use
 local x/y plane coordinates. `section.to_world()` and `section.to_local()` map
 between the plane and world space; the latter is an orthogonal projection.
+`section.outlines()` returns the section's boundary loops as `(2, n)` arrays in
+plane coordinates, sampled at `resolution` points per axis (outer boundaries
+counter-clockwise, holes clockwise, as for 2D Boolean shapes);
+`outlines(world=True)` maps them onto the plane as `(3, n)` arrays.
+`section.show_3d()` draws the section in context: the sliced shape translucently,
+the cutting plane over the shape's bounds and the outline on it
+(`backend="pyvista"` for an interactive view).
 
 ### Construction and ownership
 
@@ -98,9 +109,87 @@ approximations; increase `resolution` to inspect small features. PyVista's
 [plane widget](https://docs.pyvista.org/api/plotting/_autosummary/pyvista.plotter.add_mesh_clip_plane)
 provides the interactive clipping behavior.
 
+Without `clip=True`, wireframes or extra PyVista options, the PyVista backend draws the
+surfaces with plasma-plots' `pyvista_surfaces`, one colour per object. For a collection
+with voltages, `color_by="voltage"` colours each conductor by its voltage at time `t`
+(other objects grey):
+
+```python
+viewer = lens.show_3d(backend="pyvista", color_by="voltage", t=0.0)
+```
+
+`level_set_field(resolution=...)` samples the level set on a grid in the layout of
+plasma-plots' 3D views (`eta1`, `eta2`, `eta3` with physical `X`, `Y`, `Z`), so any of
+its levels can be drawn as an isosurface:
+
+```python
+import plasma_plots
+
+field = shell.level_set_field(resolution=64)
+field.plasma.plot.isosurface(values=[0.0, 0.1], show_domain=False)
+```
+
+In a notebook, `plasma_plots.scene(plotter)` shows a plotter as an interactive scene,
+also on these docs pages.
+
+## Level sets
+
+Analytic shapes have `level_set(points)` (`has_level_set` is true): negative inside,
+positive outside and zero on the boundary, with the sign of `signed_distance`, so it
+flips for inverted shapes. Its magnitude never exceeds the distance to the boundary,
+and where `level_set_exact` is true it is the Euclidean signed distance.
+
+| Shape | Level set |
+| --- | --- |
+| `Line`, `Circle`, `Sphere`, `Rectangle`, `Cuboid` (with or without fillets) | exact |
+| `Polygon`, `Triangle` | exact: distance to the nearest edge, signed by `contains` (one pass per edge) |
+| `Aperture2D` | exact while the plates do not touch |
+| `Cylinder`, `Tube`, `Cone`, `Torus` (any axis, with or without fillets) | exact |
+| `SlantedTube` | the larger of the uncut tube's and the cut plane's: exact on the faces, a bound near the cut's rim |
+| `Helix` | the distance from the centreline minus the wire's radius: exact within a wire radius of the wire, a bound farther away |
+| `PolarRepeat` (copies about an axis) | the source's, the least over the point's sector and its two neighbours: a bound |
+| `a \| b`, `a & b`, `a - b` | `min(a, b)`, `max(a, b)`, `max(a, -b)`: a bound, not exact |
+| rotations, translations, reflections, uniform scaling | exact if the source is |
+| nonuniform scaling, shears | the source's times the smallest stretch: a bound |
+| sections, collections | the source's on the plane, the minimum over the objects: a bound |
+| `FunctionObject2D/3D`, `Aperture3D`, `Polyline` | none |
+
+Where a shape has a level set, grid-edge crossings (`intersection_fractions`,
+`bracketed_edge_geometry`, the sampled path of `cut_edges` and `crossings`) start from
+the linear interpolation of the level set at the two ends of the edge and refine the
+root with a few Illinois (modified regula falsi) steps, instead of bisecting `contains`
+48 times. Membership still decides which edges are cut; an edge whose level-set values
+do not change sign (a node exactly on the surface, a periodic seam) is bisected as
+before. Crossings land on the surface to round-off after about 8 evaluations per edge
+instead of 50. `signed_distance` returns an exact level set directly, surface normals
+of other level-set shapes are its gradient, and `to_mesh` contours it, so meshes of
+these shapes place their vertices between samples.
+
+`cell_fractions` keeps its subcell quadrature: interpolating corner level-set values
+(AMReX-style) is more accurate in smooth cut cells but less accurate at corners and
+misses features thinner than a cell, which the subcell samples catch.
+
+## Conductors
+
+`GeometryCollection(objects, voltages={"electrode": 1000.0, "wall": 0.0})` makes
+named objects conductors. A voltage is a number or a function of the time `t`.
+`collection.with_voltages(electrode=500.0)` returns the same objects, bounds and styles
+with other voltages (a mapping works for any name; `None` removes a voltage), so a
+parameter scan does not rebuild the geometry. `voltages_at(t)` evaluates the voltages
+and `conductors` lists the names with one.
+
+`collection.dirichlet_values(grid, t=t)` returns `DirichletValues` with `labels` and
+`voltages` per node (grid-shaped), or per point for `(ndim, n)` points. Labels follow
+`labels()`: 0 outside every object, the last listed object winning in overlaps. The
+voltage is NaN outside the conductors, including inside an object without a voltage;
+`values.conductor` marks the nodes a field solver fixes. See the
+[conductors example](/simgeometry/examples/conductors-and-level-sets/) for an
+Einzel lens.
+
 ## Exact geometry and numerical approximations
 
-- Balls, axis-aligned boxes and simple polygons have analytic segment intersections
+- Balls, axis-aligned boxes (also rounded with `fillet`) and simple polygons have
+  analytic segment intersections
   and closest-point distances. Similarity transforms preserve exact closest-point
   queries. General affine transformations preserve analytic segment intersections.
 - Composite segment queries merge operand hits and discard hidden interfaces.
@@ -112,10 +201,11 @@ provides the interactive clipping behavior.
   one incident face. A generic query away from a surface returns NaN.
 - Closest-point and distance queries on general shapes use a sampled contour or
   triangular mesh. `resolution` controls the surface sampling; no exact signed
-  distance is inferred from an arbitrary boolean function.
+  distance is inferred from an arbitrary boolean function. Shapes with an exact level
+  set return it from `signed_distance`.
 - Surface meshing uses scikit-image's
   [marching contours/cubes](https://scikit-image.org/docs/stable/api/skimage.measure.html).
-  Primitive balls and boxes use continuous implicit values; other shapes use
+  Shapes with a level set use it as continuous implicit values; other shapes use
   membership samples. Mesh spacing is metadata, not a certified error bound.
   A surface touching sampling bounds can be open.
 - `sample_interior()` uses uniform rejection sampling and a finite `max_draws`.
@@ -135,7 +225,7 @@ every vertex on the circle. Loops keep the shape on their left: outer boundaries
 counter-clockwise and holes clockwise. `max_spacing` can also be a function of `(2, m)`
 points returning `(m,)` spacings, which grades the vertices (fine near an aperture tip,
 coarse far from it); see the
-[boundary outlines tutorial](/simgeometry/tutorials/boundary-outlines/). Transformed 2D
+[boundary outlines example](/simgeometry/examples/boundary-outlines/). Transformed 2D
 shapes transform their source's loops. Boolean 2D shapes (`a | b`, `a & b`, `a - b`,
 nested) have outlines through shapely (`pip install 'simgeometry[clip]'`): each operand
 enters as the polygon of its own outline, so curved operands are approximated by inscribed
@@ -160,16 +250,46 @@ end positions, first crosses the shape's boundary, entering or leaving. It retur
 `fraction` in (0, 1], `point` and a unit `normal` pointing out of the region where
 `contains` is true. Because the whole step is tested, a fast particle cannot pass through a
 thin plate between two end points. Polygonal 2D shapes, polylines, circles, spheres,
-axis-aligned boxes and their affine transforms are exact. Other shapes are sampled at
+axis-aligned boxes, slanted tubes and their affine transforms are exact. Other shapes are sampled at
 `samples` points per step and bisected, so features thinner than `1 / samples` of a step can
 be missed, and their normals are estimated (`exact` is `False`). A crossing at the very
 start of a step is not reported, so a particle stopped on a surface is not counted twice;
 grazing contacts are not crossings.
 
+On a `GeometryCollection` each object is tested on its own (exactly where it is) and the
+earliest crossing wins: `hits.surface` is the index into `hits.names` of the object hit
+first (-1 for none), and `hits.per_surface(power)` sums the marker weights each object
+receives, for the power on the dump plates, calorimeter panels and duct of a beamline:
+
+```python
+walls = GeometryCollection(
+    {
+        "dump": Cuboid((1, 0, 0.3), (1, 0.6, 0.02)),
+        "calorimeter": Cuboid((5, 0, 0), (0.02, 0.8, 0.8)).rotated(30.0),
+    }
+)
+hits = walls.crossings(old_positions, positions)
+power = hits.per_surface(weights)  # {"dump": ..., "calorimeter": ...}
+```
+
+For many markers against fixed 2D obstacles, `simgeometry.polygon_objects.polygon_objects(objects)`
+packs the `Polygon` and `Aperture2D` objects (other shapes are left out) into flat arrays,
+and `packed.absorb(positions, alive, start=old_positions)` absorbs, in one compiled pass,
+the alive markers that end inside an object or whose step crosses one of its edges: exactly,
+so a step longer than a plate's thickness is caught. It sets `alive` to false for them and
+returns, per marker, the slot of the object met first along the step (`packed.index[slot]`
+is its position in `objects`; -1 for none). `sweep_length=` makes longer steps (wrapped by a
+periodic side) count by their end only. The kernel, `simgeometry.kernels.absorb_polygons_2d`,
+has Pyccel, NumPy and CUDA versions; `polygon_hit.cuh` and `polygon_hits.py` next to it
+are the hit test for kernels of other packages that fuse it into their own loops.
+
 `simgeometry.cut_edges.bracketed_edge_geometry()` is the batched geometry path for
 Picnic's Shortley–Weller stencil. It visits fluid nodes with solid neighbours and
 assumes a single crossing in each bracket. Fractions have no numerical lower clamp.
-Picnic applies its own minimum edge fraction before assembling coefficients.
+Picnic applies its own minimum edge fraction before assembling coefficients. Its
+`points` and `normals` are the crossings in world coordinates and the outward normals
+of the entered object, `(ndim, n)` arrays in the order of `fractions` (periodic images
+wrapped into the domain); `crossing_owners` gives each crossing's object.
 
 The full `cut_edges()` inspection can detect multiple crossings and objects lying
 between fluid nodes. It visits every edge, so it is intended for inspection and
@@ -177,7 +297,32 @@ geometry preparation rather than repeated use in a solver timestep. Collection
 hits include each object's interfaces, including interfaces hidden by overlaps;
 Boolean shapes instead expose only the resulting solid's boundary.
 
+On a 3D grid, `show_3d()` on either result draws the translucent surface and the
+crossings, with `normals=True` the outward normals and with `nodes=True` the solid grid
+nodes; `backend="pyvista"` returns a PyVista plotter, otherwise Matplotlib 3D axes.
+
+`shape.yee_fractions(grid)` gives the cut-cell geometry of a staggered (Yee) grid on the
+grid's nodes, 2D or 3D, for conformal finite-difference and finite-integration schemes
+(Dey–Mittra edges and faces, embedded boundaries). `edges[a]` is the fraction of each edge
+along axis `a` inside the shape (shape: cells along `a`, nodes across), `faces[a]` the
+fraction of each face normal to `a` (nodes along `a`, cells across; in 2D one family, the
+cells). `traces[a]` is the length of the curve where the surface crosses each face and
+`projected_traces[a]` that length weighted by `|n x e_a|`, the sine between the surface
+normal and the face's; summed over all faces, each times the spacing along its normal, the
+projected traces give twice the surface's area. On a periodic axis the last edge or face
+closes the period (no duplicate). Edge fractions use every crossing along the edge (so a
+slit narrower than a cell keeps its gap); face fractions and traces integrate lines across
+the face, piecewise Gauss–Legendre between the crossings on the face's edges, in both
+directions.
+Both are exact for planes; for curved surfaces they converge at second order or better (a
+circle's area and perimeter to `2e-7` at 80 cells across). A surface lying on grid lines
+(walls of an axis-aligned box or slit on node planes) is treated like a staircase: the edges
+and faces in it count as inside, whatever `contains` returns on the surface itself, and its trace
+counts for the face on its outside. Shapes without analytic crossings are
+sampled with `samples` points per segment. Where a shape has a level set, segments farther
+from the surface than half their length are not searched.
+
 `diagnose(grid)` reports node overlaps, objects without solid nodes, multiple-hit
 edges, and very short edge distances. These observations do not prove that all
-features are resolved. See the [cut-edge tutorial](/simgeometry/tutorials/grid-intersections-and-cut-edges/)
-and the [sampling/export tutorial](/simgeometry/tutorials/sampling-export-and-diagnostics/).
+features are resolved. See the [cut-edge example](/simgeometry/examples/grid-intersections-and-cut-edges/)
+and the [sampling/export example](/simgeometry/examples/sampling-export-and-diagnostics/).

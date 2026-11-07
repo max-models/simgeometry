@@ -5,6 +5,7 @@ from __future__ import annotations
 import cunumpy as xp
 import numpy as np
 from maybempi import MPI
+from methodcard import method
 from numpy import ndarray
 
 from simgeometry._normalize import ensure_dim_tuple
@@ -12,6 +13,18 @@ from simgeometry._types import Array, ConfigValue, Printable
 from simgeometry.boundingbox import BoundingBox
 
 
+@method(
+    equations={
+        "nodes": r"x_i = l + i\,h, \qquad i = 0, \dots, N - 1",
+        "spacing": r"h = \frac{u - l}{N - 1} \;\text{(bounded axis)}, \qquad h = \frac{u - l}{N} \;\text{(periodic axis)}",
+        "cell": r"i = \left\lfloor \frac{x - l}{h} \right\rfloor \quad \text{for } l \le x < u",
+    },
+    assumptions=(
+        "uniform nodes per axis, in C order; on a bounded axis the first and last node sit on the bounds, on a periodic axis the last node is one spacing before $u$",
+        "outside the half-open box `get_cell_indices` returns an empty tuple",
+        r"ghost points only widen the local node count to $N_\mathrm{local} + 2g$; the halo exchange is mpiarray's",
+    ),
+)
 class Grid(BoundingBox):
     """Represent grid coordinates for a bounded simulation domain."""
 
@@ -24,7 +37,7 @@ class Grid(BoundingBox):
         num_ghost_points: int = 0,
         comm: MPI.Comm | None = None,
         domain_decomposition: ConfigValue = None,
-        periodic: bool | None = None,
+        periodic: bool | tuple[bool, ...] | None = None,
     ) -> None:
         """
         Initialize a grid.
@@ -124,8 +137,8 @@ class Grid(BoundingBox):
     def node_points(self) -> np.ndarray:
         """Return the coordinates of every node as an ``(ndim, N)`` host array.
 
-        The nodes are in the order of :attr:`indices` (C order of the grid);
-        column ``n`` equals :meth:`node_coordinates` of the ``n``-th index.
+        The nodes are in the order of `indices` (C order of the grid);
+        column ``n`` equals `node_coordinates` of the ``n``-th index.
         """
         lower = np.asarray(self.lower_bound, dtype=float)
         spacing = np.asarray(xp.to_numpy(self.grid_spacing), dtype=float)
@@ -135,10 +148,10 @@ class Grid(BoundingBox):
         return lower[:, None] + index.astype(float) * spacing[:, None]
 
     def indices_from_mask(self, mask: Array) -> list[int] | list[tuple[int, ...]]:
-        """Return the :attr:`indices` of the nodes where the grid-shaped ``mask`` is set.
+        """Return the `indices` of the nodes where the grid-shaped ``mask`` is set.
 
-        ``mask`` is a boolean array of shape :attr:`num_gridpoints` (or flat, in
-        C order); the result keeps the order of :attr:`indices`.
+        ``mask`` is a boolean array of shape `num_gridpoints` (or flat, in
+        C order); the result keeps the order of `indices`.
         """
         mask = np.asarray(xp.to_numpy(mask), dtype=bool).reshape(
             tuple(int(n) for n in self.num_gridpoints)

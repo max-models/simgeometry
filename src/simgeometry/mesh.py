@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.evaluation import sampling_axes
 from simgeometry.operations import mask
 
@@ -83,14 +85,9 @@ class SurfaceMesh:
         return path
 
 
-def to_mesh(shape, *, resolution=64, bounds=None):
-    if shape.ndim not in (2, 3):
-        raise ValueError("Surface meshing requires 2D or 3D geometry")
-    try:
-        from skimage.measure import find_contours, marching_cubes
-    except ImportError as exc:
-        raise ImportError("Surface meshing requires simgeometry[mesh]") from exc
-    from simgeometry.queries import BALLS, BOXES
+def _sampled_values(shape, resolution, bounds):
+    """The sampling axes and spacing, and values positive inside the shape on them."""
+    from simgeometry.queries import level_values
 
     if bounds is None:
         lower, upper = np.asarray(shape.lower_bound), np.asarray(shape.upper_bound)
@@ -100,35 +97,43 @@ def to_mesh(shape, *, resolution=64, bounds=None):
     dimensions = tuple(len(a) for a in axes)
     spacing = tuple(float(a[1] - a[0]) for a in axes)
     points = np.stack([a.ravel() for a in np.meshgrid(*axes, indexing="ij")])
-    # Continuous implicit functions improve primitive surface placement; generic
-    # membership masks have an uncertainty of roughly a sampling cell.
-    if isinstance(shape, BALLS):
-        values = shape.radius - np.linalg.norm(
-            points - np.asarray(shape.midpoint)[:, None], axis=0
-        )
-    elif isinstance(shape, BOXES):
-        centre = (np.asarray(shape.lower_bound) + shape.upper_bound) / 2
-        half = (np.asarray(shape.upper_bound) - shape.lower_bound) / 2
-        q = abs(points - centre[:, None]) - half[:, None]
-        values = -(
-            np.linalg.norm(np.maximum(q, 0), axis=0) + np.minimum(np.max(q, axis=0), 0)
-        )
+    # A level set (continuous, positive inside once negated) places the surface
+    # between samples; a membership mask has an uncertainty of about a sampling cell.
+    if getattr(shape, "has_level_set", False):
+        values = -level_values(shape, points)
     else:
         values = mask(shape, points).astype(float) - 0.5
-    if isinstance(shape, (*BALLS, *BOXES)) and shape.inverted:
-        values = -values
-    values = values.reshape(dimensions)
+    return axes, spacing, values.reshape(dimensions)
+
+
+def _find_contours(shape, *, resolution=64, bounds=None):
+    """The sampled boundary of a 2D shape as ``(n, 2)`` polylines, and the spacing.
+
+    Each polyline keeps the region on its left; a closed one repeats its first
+    vertex at the end. Polylines touching the sampling bounds stay open.
+    """
+    try:
+        from skimage.measure import find_contours
+    except ImportError as exc:
+        raise ImportError("Surface meshing requires simgeometry[mesh]") from exc
+    axes, spacing, values = _sampled_values(shape, resolution, bounds)
     if not (values.min() < 0 < values.max()):
-        return SurfaceMesh(
-            np.empty((0, shape.ndim)), np.empty((0, shape.ndim), dtype=int), spacing
-        )
+        return [], spacing
+    start = np.array([a[0] for a in axes])
+    contours = find_contours(values, 0, positive_orientation="high")
+    return [c * np.asarray(spacing) + start for c in contours], spacing
+
+
+@sp.profile("simgeometry.to_mesh", tags=_PROFILE_TAGS)
+def to_mesh(shape, *, resolution=64, bounds=None):
+    if shape.ndim not in (2, 3):
+        raise ValueError("Surface meshing requires 2D or 3D geometry")
     if shape.ndim == 2:
+        contours, spacing = _find_contours(shape, resolution=resolution, bounds=bounds)
         vertices, cells = [], []
         offset = 0
-        for contour in find_contours(values, 0, positive_orientation="high"):
-            vertices.extend(
-                contour * np.asarray(spacing) + np.array([a[0] for a in axes])
-            )
+        for contour in contours:
+            vertices.extend(contour)
             cells.extend((offset + i, offset + i + 1) for i in range(len(contour) - 1))
             offset += len(contour)
         return SurfaceMesh(
@@ -136,6 +141,13 @@ def to_mesh(shape, *, resolution=64, bounds=None):
             np.asarray(cells, dtype=int).reshape(-1, 2),
             spacing,
         )
+    try:
+        from skimage.measure import marching_cubes
+    except ImportError as exc:
+        raise ImportError("Surface meshing requires simgeometry[mesh]") from exc
+    axes, spacing, values = _sampled_values(shape, resolution, bounds)
+    if not (values.min() < 0 < values.max()):
+        return SurfaceMesh(np.empty((0, 3)), np.empty((0, 3), dtype=int), spacing)
     vertices, faces, _, _ = marching_cubes(
         values,
         level=0,

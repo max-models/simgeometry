@@ -1,7 +1,9 @@
 """Reproducible interior and boundary sampling."""
 
 import numpy as np
+import scope_profiler as sp
 
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry.operations import mask
 
 
@@ -11,6 +13,7 @@ def _count(count):
     return int(count)
 
 
+@sp.profile("simgeometry.sample_interior", tags=_PROFILE_TAGS)
 def sample_interior(shape, count, *, rng=None, bounds=None, max_draws=1_000_000):
     count = _count(count)
     if shape.inverted and bounds is None:
@@ -44,6 +47,7 @@ def sample_interior(shape, count, *, rng=None, bounds=None, max_draws=1_000_000)
     return np.concatenate(accepted, axis=1) if count else np.empty((shape.ndim, 0))
 
 
+@sp.profile("simgeometry.sample_surface", tags=_PROFILE_TAGS)
 def sample_surface(shape, count, *, rng=None, resolution=64, bounds=None):
     count = _count(count)
     if count == 0:

@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 import cunumpy as xp
+import scope_profiler as sp
 from maybempi import MPI
+from methodcard import method
 
 from simgeometry._particle_boundaries import apply_particle_boundaries
+from simgeometry._profiling import _PROFILE_TAGS
 from simgeometry._types import Array, ConfigValue
 from simgeometry.boundingbox import BoundingBox
 from simgeometry.grid import Grid
@@ -235,6 +238,20 @@ class SimulationDomain(BoundingBox):
         wrapped = lower + (values - lower) % (upper - lower)
         return xp.where(wrapped >= upper, lower, wrapped)
 
+    @method(
+        equations={
+            "sides": r"\text{below} \iff x < l, \qquad \text{above} \iff x > u \quad (x \ge u \text{ on a periodic upper side})",
+            "reflect": r"x \leftarrow 2b - x, \qquad v \leftarrow -v",
+            "periodic": r"x \leftarrow l + (x - l) \bmod (u - l), \qquad x = u \mapsto l",
+            "kill": r"\text{alive} \leftarrow \text{alive} \land l \le x < u \quad \text{after every axis}",
+        },
+        assumptions=(
+            r"per axis in order, on alive markers not flagged for reinjection; $b$ the side crossed",
+            "kill (code 0), reflect (1), periodic (2), reinject (3): a reinjected marker gets a new position from the injection zone",
+            "a marker on a non-periodic upper side is killed, not reflected; a reflection that still lands outside kills the marker",
+        ),
+    )
+    @sp.profile("simgeometry.apply_bc_arrays", tags=_PROFILE_TAGS)
     def apply_bc_arrays(
         self,
         positions: Array,

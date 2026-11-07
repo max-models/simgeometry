@@ -24,7 +24,7 @@ class BoundingBox:
         upper_bound: tuple,
         comm: MPI.Comm | None = None,
         domain_decomposition: ConfigValue = None,
-        periodic: bool | None = None,
+        periodic: bool | tuple[bool, ...] | None = None,
     ) -> None:
         """
         Initialize the simulation domain.

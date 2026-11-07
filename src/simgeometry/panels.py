@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from methodcard import method
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class Panels:
     outline loop (see ``outlines()``) each panel belongs to, so the panels of one loop
     are contiguous and in order. ``closed`` is False for an open curve.
 
-    :attr:`normal` is the unit normal to the right of each panel's direction. Loops
+    `normal` is the unit normal to the right of each panel's direction. Loops
     keep the shape on their left, so for a closed shape it points out of the
     geometry, at outer boundaries and holes alike (inversion is ignored, as in
     ``outlines()``). For an open curve it is the side to the right of the curve's
@@ -26,9 +27,6 @@ class Panels:
     end: np.ndarray
     piece: np.ndarray
     closed: bool = True
-
-    def __len__(self) -> int:
-        return int(self.start.shape[1])
 
     @property
     def midpoint(self) -> np.ndarray:
@@ -51,9 +49,22 @@ class Panels:
         tx, ty = self.tangent
         return np.stack((ty, -tx))
 
+    def __len__(self) -> int:
+        return int(self.start.shape[1])
 
+
+@method(
+    equations={
+        "panels": r"P_i = [v_i, v_{i+1}], \qquad t_i = \frac{v_{i+1} - v_i}{|v_{i+1} - v_i|}, \qquad n_i = (t_{i,y}, -t_{i,x})",
+    },
+    assumptions=(
+        "the vertices $v_i$ of `outlines`, counter-clockwise, so $n_i$, to the right of $t_i$, points out of the geometry at outer boundaries and holes alike",
+        "a closed loop also has the panel back to its first vertex; an open curve has one panel fewer than vertices",
+        "zero-length edges are dropped; inversion is ignored, as in `outlines`",
+    ),
+)
 def boundary_panels(shape, max_spacing=None) -> Panels:
-    """The edges of ``shape.outlines(max_spacing)`` as :class:`Panels`.
+    """The edges of ``shape.outlines(max_spacing)`` as `Panels`.
 
     Each edge of a closed loop is a panel, including the one back to its first
     vertex; an open curve has one panel fewer than vertices. Zero-length edges are
