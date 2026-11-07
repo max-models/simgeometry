@@ -4,7 +4,7 @@ requires = [ "setuptools", "wheel" ]
 
 [project]
 name = "simgeometry"
-version = "0.1.1"
+version = "0.2.0"
 description = "Shapes, grids, and simulation domains for numerical simulations"
 readme = "README.md"
 keywords = [ "geometry", "grids", "simulation", "mpi" ]
@@ -20,7 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "cunumpy>=0.6.2",
+  "cunumpy>=0.7.1",
   "maybempi>=0.1",
   "methodcard",
   "mpiarray>=0.1.0",
