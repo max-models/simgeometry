@@ -5,6 +5,13 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-07
+
+### Fixed
+
+- The cunumpy lower bound is 0.7.2, the first release with `KernelPackage`; 0.2.0 declared
+  0.7.1 and did not import with it.
+
 ## [0.2.0] - 2026-11-07
 
 ### Added
