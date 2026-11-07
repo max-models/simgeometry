@@ -5,6 +5,8 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-07
+
 ### Added
 
 - One example page per object of `simgeometry.objects`, from `Line` to `Helix`
@@ -142,6 +144,7 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Requires cunumpy 0.7.1 or newer, for its `KernelPackage`.
 - The kernels are built with cunumpy's `KernelPackage`
   (`simgeometry.kernels.KERNEL_PACKAGE`): `kernels/_build.py`, `kernels/_metal.py` and
   `kernels/compile.py` are gone, and the build cache is still `SIMGEOMETRY_KERNEL_CACHE`.
