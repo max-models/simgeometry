@@ -8,6 +8,7 @@ from simgeometry.objects.circle import Circle
 from simgeometry.objects.cone import Cone
 from simgeometry.objects.cuboid import Cuboid
 from simgeometry.objects.cylinder import Cylinder
+from simgeometry.objects.fourier_surface import FourierSurface
 from simgeometry.objects.function_object import FunctionObject2D, FunctionObject3D
 from simgeometry.objects.helix import Helix
 from simgeometry.objects.line import Line
@@ -20,6 +21,7 @@ from simgeometry.objects.slanted_tube import SlantedTube
 from simgeometry.objects.sphere import Sphere
 from simgeometry.objects.torus import Torus
 from simgeometry.objects.triangle import Triangle
+from simgeometry.objects.triangle_mesh import SurfaceHits, TriangleMesh
 from simgeometry.objects.tube import Tube
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "Cone",
     "Cuboid",
     "Cylinder",
+    "FourierSurface",
     "FunctionObject2D",
     "FunctionObject3D",
     "Helix",
@@ -42,6 +45,8 @@ __all__ = [
     # 3D objects
     "Sphere",
     "Torus",
+    "SurfaceHits",
     "Triangle",
+    "TriangleMesh",
     "Tube",
 ]

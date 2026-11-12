@@ -6,7 +6,11 @@ shape's boundary, entering or leaving. Because the whole step is tested, not onl
 end point, a fast particle cannot pass through a thin plate unnoticed.
 
 Polygonal 2D shapes (exact outlines), circles, spheres, slanted tubes and axis-aligned
-boxes, also with rounded edges (``fillet``), are analytic; affine transforms of them stay analytic. Every other shape (Boolean
+boxes, also with rounded edges (``fillet``), are analytic; affine transforms of them stay analytic.
+Triangle meshes (`TriangleMesh`) are exact for their triangles, walked cell by cell
+through a grid by a compiled kernel; Fourier surfaces (`FourierSurface`, a stellarator
+wall) search their triangulation and refine the hit onto the exact surface by Newton
+steps. Every other shape (Boolean
 combinations, collections, function objects, ...) is sampled: membership is tested at
 ``samples`` points along each step and the first change is bisected, so features
 thinner than ``1 / samples`` of a step can be missed, and the normals are estimated.
@@ -359,12 +363,14 @@ def _first(shape, a, d, samples, iterations):
         Aperture2D,
         Circle,
         Cuboid,
+        FourierSurface,
         Line,
         Polygon,
         Rectangle,
         SlantedTube,
         Sphere,
         Triangle,
+        TriangleMesh,
     )
     from simgeometry.operations import TransformedShape
 
@@ -375,6 +381,9 @@ def _first(shape, a, d, samples, iterations):
     if isinstance(shape, SlantedTube):
         t, normal = shape._first_crossing(a, d, START_TOLERANCE)
         return t, _flip(shape, normal), True
+    if isinstance(shape, (TriangleMesh, FourierSurface)):
+        t, normal, exact = shape._first_crossing(a, d, START_TOLERANCE)
+        return t, _flip(shape, normal), exact
     if isinstance(shape, (Rectangle, Cuboid)) and shape.fillet > 0:
         return (*_rounded_box(shape, a, d), True)
     if isinstance(shape, (Rectangle, Cuboid, Line)):
@@ -475,7 +484,7 @@ def _sampled_problem() -> ConvergenceProblem:
     order=1,
     assumptions=(
         r"each step $a \to b$, $d = b - a$; the first crossing $t \in (0, 1]$, entering or leaving; crossings at $t \le 10^{-12}$ are ignored, at $t = 1$ counted; grazing contacts and zero steps are not crossings",
-        r"analytic (`exact`): balls, boxes and rounded boxes (the hull of the intervals of the inner box widened along one axis and the discs, edge cylinders and corner balls of radius $f$), polygonal 2D shapes ($|d \times e| > 10^{-14}|d||e|$, $u \in [-10^{-12}, 1 + 10^{-12}]$), slanted tubes and affine images of them",
+        r"analytic (`exact`): balls, boxes and rounded boxes (the hull of the intervals of the inner box widened along one axis and the discs, edge cylinders and corner balls of radius $f$), polygonal 2D shapes ($|d \times e| > 10^{-14}|d||e|$, $u \in [-10^{-12}, 1 + 10^{-12}]$), slanted tubes and affine images of them, triangle meshes (Möller–Trumbore in the cells of a grid) and Fourier surfaces whose hits were refined onto the surface",
         r"sampled otherwise: membership at $s + 1$ points $t = k/s$ (`samples` $s = 64$), then Illinois steps on the level set to $2^{-m}$ if it changes sign, else $m$ bisections on membership (`iterations` $m = 40$)",
         r"normals point out of the region where `contains` is true: radial for balls, $\mp\operatorname{sign}(d_k)\,e_k$ for boxes, $(e_y, -e_x)/|e|$ for counter-clockwise edges; the level-set gradient ($\delta = 10^{-7}$ times the extent) or 64 (2D) or 128 (3D) membership probes for sampled shapes; flipped for inverted shapes",
         "a `GeometryCollection`: each object on its own path, the earliest crossing wins, the first listed on a tie",

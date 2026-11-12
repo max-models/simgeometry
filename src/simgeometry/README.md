@@ -30,6 +30,8 @@ values; applications can configure their own seeded stream.
 - `utils.py` - Utils helpers for geometry, grids, and simulation domains.
 - `_level_set.py` - Exact signed-distance formulas of the primitives and the Illinois root finding on level sets.
 - `_rounded_box.py` - Line intervals, normals and closest points of boxes with rounded edges (`fillet`).
+- `_triangle_grid.py` - The uniform grid of cells over a triangle mesh (faces per cell, inside states of the nodes) for `TriangleMesh`'s kernels.
+- `data/` - Reference geometry: DESC's W7-X plasma boundary (`w7x_boundary`) and a W7-X-like stand-in wall (`w7x_like_wall`, a uniform offset; not W7-X's first wall).
 - `collection.py` - `GeometryCollection`: named objects, overlap precedence, styles, and conductor voltages (`with_voltages`, `voltages_at`, `dirichlet_values`).
 
 The shared `GeometryAPI` adds sections, transforms, Boolean operations, plotting,

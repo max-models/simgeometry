@@ -14,9 +14,9 @@ Every array query takes component-major points $p$ of shape `(ndim, n)` and runs
 through cunumpy, on CuPy; the hot loops are compiled Pyccel kernels.
 
 Each equation on these pages is declared on the code that implements it, as a method card, and
-checked by the tests: 19 closed forms (the level sets of the shapes, the Boolean and affine
-level sets, the analytic crossings) against SymPy rules, three discretisations against their
-order of convergence. The pages of the section list the cards module by module; this one shows
+checked by the tests: 20 closed forms (the level sets of the shapes, the Boolean and affine
+level sets, the analytic crossings, the segment-triangle test) against SymPy rules, five
+discretisations against their order of convergence. The pages of the section list the cards module by module; this one shows
 how they fit together.
 
 ## Shapes
@@ -44,6 +44,10 @@ distances of boxes, segments, capped cones and tori:
   [SlantedTube](/simgeometry/numerics/objects-slanted-tube/), a bound near its cut;
 - the [Helix](/simgeometry/numerics/objects-helix/), a helical wire (an RF coil), its
   distance found by Newton steps along the centreline;
+- surfaces given by data: the [TriangleMesh](/simgeometry/numerics/objects-triangle-mesh/)
+  (closed or open, e.g. a first wall from CAD) and the
+  [FourierSurface](/simgeometry/numerics/objects-fourier-surface/) of a stellarator's boundary
+  or wall, with its normal offset; membership on their triangles (no level set);
 - [Booleans, affine transforms and sections](/simgeometry/numerics/operations/), whose level
   sets are bounds, and [collections](/simgeometry/numerics/collection/) of labelled objects.
 
@@ -57,9 +61,11 @@ boundary-element solvers.
 
 A particle pusher tests the whole step $a \to b$ of every marker, not only its end, so a fast
 particle cannot pass through a thin plate. [First crossings](/simgeometry/numerics/crossings/)
-are analytic for balls, boxes, polygons, slanted tubes and their affine images; other shapes
-are sampled along the step and refined by Illinois steps on the level set, or bisected on
-membership without one.
+are analytic for balls, boxes, polygons, slanted tubes and their affine images, and exact for
+triangle meshes ([segment-triangle test](/simgeometry/numerics/kernels-triangle-hits/) in the
+cells of a grid, compiled) and Fourier surfaces (their triangles, then Newton steps onto the
+surface); other shapes are sampled along the step and refined by Illinois steps on the level
+set, or bisected on membership without one.
 
 <MethodCard name="simgeometry.crossings.crossings" headingLevel={3} />
 

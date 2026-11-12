@@ -5,6 +5,42 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `TriangleMesh(vertices, faces)`: a surface of triangles, closed (watertight and
+  consistently oriented: an inside test, outward normals, volume) or open (wall panels with
+  gaps: no inside, normals facing the segment). `TriangleMesh.read` loads STL (ASCII and
+  binary, vertices merged), OBJ and NPZ, and other formats through `meshio` if installed, so a
+  first wall from CAD can be used as it is. Queries are exact for the triangles and go through
+  a uniform grid of cells (`simgeometry._triangle_grid`) and two compiled kernels with NumPy
+  fallbacks: `mesh_first_hits` walks each segment through its cells (Amanatides–Woo) and tests
+  their triangles (Möller–Trumbore, `simgeometry.kernels.triangle_hits`), `mesh_inside`
+  compares a point with the nearest node of its cell, whose state is precomputed by counting
+  crossings along the grid lines of all three axes. About 0.1–0.2 s for 1e5 segments against
+  1e5 triangles and 0.1 s for 1e6 points on one core (Pyccel).
+- `FourierSurface(r_cos, z_sin, n_field_periods, r_sin=, z_cos=)`: a closed toroidal surface in
+  VMEC's and ConStellaration's `SurfaceRZFourier` layout (`from_boundary` reads a
+  `boundary.json` dict, its JSON or a `SurfaceRZFourier`; `to_boundary` writes it), e.g. a
+  stellarator's plasma boundary or first wall. Points, outward normals, volume and area
+  (spectrally accurate), `closest` points by Newton steps, and membership and hits on its
+  triangulation (`resolution` points per poloidal turn and field period,
+  `triangulation_error`), with every hit moved onto the exact surface by Newton steps on
+  `a + t d = X(theta, phi)` (`refine`; to 1e-10 m against the closed form of a circular torus).
+  A segment that starts on the surface finds the next hit, so lines can be followed through it.
+  `FourierSurface.offset(distance)` moves the surface along its normal and refits it with the
+  fewest modes within a tolerance (default a hundredth of the distance; `offset_residual`).
+- `crossings` handles both: exact for meshes, exact for Fourier surfaces where all hits were
+  refined; `first_hit(starts, ends)` and `inside_at(points)` take point-major `(..., 3)`
+  arrays and return `SurfaceHits` (hit, fraction, distance, point, normal, face, and the angles
+  of a Fourier surface) and `(...)` masks, the layout of freeofcharge's wall queries.
+- `simgeometry.data`: DESC's W7-X plasma boundary (standard configuration, `w7x_boundary`) and
+  `w7x_like_wall(gap=0.10)`, a stand-in for W7-X's first wall that offsets the boundary by a
+  uniform gap. It is not W7-X's wall, whose geometry is IPP's CAD.
+- Docs: the example "Stellarator wall" (the stand-in wall, its gap, cross-sections and a fan of
+  lines with their plasma entries and wall hits) and the object pages `TriangleMesh` and
+  `FourierSurface`; method cards for both and the segment-triangle test, with a SymPy rule and
+  the second-order convergence of a sphere's mesh volume and of the triangulated hits.
+
 ## [0.2.1] - 2026-11-07
 
 ### Fixed

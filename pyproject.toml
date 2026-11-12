@@ -62,7 +62,7 @@ simgeometry = "simgeometry"
 
 [tool.setuptools]
 package-data."*" = [ "py.typed" ]
-package-data.simgeometry = [ "kernels/*.cuh", "kernels/*/*.cu" ]
+package-data.simgeometry = [ "kernels/*.cuh", "kernels/*/*.cu", "data/*.json" ]
 packages.find.where = [ "src" ]
 packages.find.exclude = [ "simgeometry.tests*" ]
 
