@@ -9,6 +9,7 @@ Concrete geometric objects that can be embedded in a simulation domain.
 - `aperture3d.py` - Three-dimensional aperture helpers for geometric object definitions.
 - `circle.py` - Circle helpers for geometric object definitions.
 - `cuboid.py` - Cuboids, optionally with rounded edges.
+- `fourier_surface.py` - Toroidal surfaces as Fourier series (a stellarator's boundary or wall), with normal offsets.
 - `line.py` - Line helpers for geometric object definitions.
 - `polygon.py` - Polygon helpers for geometric object definitions.
 - `polyline.py` - Open polylines: curves of zero thickness (thin plates, wires).
@@ -16,3 +17,4 @@ Concrete geometric objects that can be embedded in a simulation domain.
 - `slanted_tube.py` - Tubes and rods whose far end is cut by a slanted plane.
 - `sphere.py` - Sphere helpers for geometric object definitions.
 - `triangle.py` - Triangle helpers for geometric object definitions.
+- `triangle_mesh.py` - Closed or open surfaces of triangles (a first wall from CAD), with exact inside tests and first hits.

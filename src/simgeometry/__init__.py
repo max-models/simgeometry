@@ -14,6 +14,7 @@ from simgeometry.objects import (
     Cone,
     Cuboid,
     Cylinder,
+    FourierSurface,
     FunctionObject2D,
     FunctionObject3D,
     Helix,
@@ -23,8 +24,10 @@ from simgeometry.objects import (
     Rectangle,
     SlantedTube,
     Sphere,
+    SurfaceHits,
     Torus,
     Triangle,
+    TriangleMesh,
     Tube,
 )
 from simgeometry.operations import PolarRepeat
@@ -48,6 +51,7 @@ __all__ = [
     "Cone",
     "Cuboid",
     "Cylinder",
+    "FourierSurface",
     "FunctionObject2D",
     "FunctionObject3D",
     "Helix",
@@ -58,6 +62,8 @@ __all__ = [
     "SlantedTube",
     "Sphere",
     "Torus",
+    "SurfaceHits",
     "Triangle",
+    "TriangleMesh",
     "Tube",
 ]
