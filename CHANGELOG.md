@@ -7,6 +7,14 @@ format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `simgeometry/kernels/polygon_hit_pyccel.py`: the polygon-object hit test for Pyccel kernels,
+  `object_hit_time` and `polygon_bounds`, the Pyccel version of `polygon_hit.cuh` and
+  `polygon_hits.py`. Pyccel kernels of any package import them (picnic's fused 2D push)
+  and cunumpy's kernel cache builds them with the kernel (needs cunumpy with dependency
+  builds, cunumpy#138). `absorb_polygons_2d` (Pyccel) uses them, with picnic's per-polygon
+  bounding-box skip: the same results, 4.8 times faster with boxed objects and 8.7 times
+  without (400 000 swept markers, 40 polygons in 10 objects, serial).
+
 - `TriangleMesh(vertices, faces)`: a surface of triangles, closed (watertight and
   consistently oriented: an inside test, outward normals, volume) or open (wall panels with
   gaps: no inside, normals facing the segment). `TriangleMesh.read` loads STL (ASCII and

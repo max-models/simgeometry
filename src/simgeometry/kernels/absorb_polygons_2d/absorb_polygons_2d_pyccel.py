@@ -10,69 +10,15 @@ of ``vertices`` (V, 2) with the closing edge implied; ``object_inverted[k] == 1`
 makes it solid outside them. A marker is inside a polygon by the even-odd ray
 casting of ``contains_polygon_2d``. With a step from ``start`` it also hits an
 object when the step crosses one of its edges, exactly (no sampling), and the
-object it meets first along the step takes it. Kernels that fuse the test into
-their own loop (picnic's ``push_electrostatic_2d``) copy ``_object_hit_time``;
-``polygon_hit.cuh`` and ``polygon_hits.py`` are its CUDA and NumPy forms.
+object it meets first along the step takes it. The test is ``object_hit_time`` of
+``polygon_hit_pyccel.py``, shared with kernels of other packages that fuse it into their
+own loop (picnic's ``push_electrostatic_2d``); ``polygon_hit.cuh`` and
+``polygon_hits.py`` are its CUDA and NumPy forms.
 """
 
+import numpy as np
 
-def _object_hit_time(
-    vertices: "float[:,:]",
-    polygon_offsets: "int[:]",
-    first: int,
-    last: int,
-    inverted: int,
-    x0: float,
-    y0: float,
-    x1: float,
-    y1: float,
-    sweep: int,
-) -> float:
-    """Where along the step from (x0, y0) to (x1, y1) the marker enters the object.
-
-    The parameter in (0, 1] of the first edge crossing (with ``sweep == 1``),
-    else 0 if (x1, y1) lies in the solid, else 2 (no hit).
-    """
-    inside = False
-    crossing = 2.0
-    dx = x1 - x0
-    dy = y1 - y0
-    for polygon in range(first, last):
-        begin = polygon_offsets[polygon]
-        end = polygon_offsets[polygon + 1]
-        in_polygon = False
-        xj = vertices[end - 1, 0]
-        yj = vertices[end - 1, 1]
-        for vertex in range(begin, end):
-            xi = vertices[vertex, 0]
-            yi = vertices[vertex, 1]
-            if (yi > y1) != (yj > y1) and x1 < (xj - xi) * (y1 - yi) / (
-                (yj - yi) + 1e-16
-            ) + xi:
-                in_polygon = not in_polygon
-            if sweep == 1:
-                # the step x0 + t d meets the edge xj + u e
-                ex = xi - xj
-                ey = yi - yj
-                denominator = dx * ey - dy * ex
-                if denominator != 0.0:
-                    wx = xj - x0
-                    wy = yj - y0
-                    t = (wx * ey - wy * ex) / denominator
-                    u = (wx * dy - wy * dx) / denominator
-                    if 0.0 < t <= 1.0 and 0.0 <= u <= 1.0 and t < crossing:
-                        crossing = t
-            xj = xi
-            yj = yi
-        if in_polygon:
-            inside = True
-    if inverted == 1:
-        inside = not inside
-    if crossing <= 1.0:
-        return crossing
-    if inside:
-        return 0.0
-    return 2.0
+from simgeometry.kernels.polygon_hit_pyccel import object_hit_time, polygon_bounds
 
 
 def absorb_polygons_2d(
@@ -102,6 +48,11 @@ def absorb_polygons_2d(
     ``object_lower[k]``..``object_upper[k]``.
     """
     num_objects = object_first.shape[0]
+    # the bounding box of every polygon, for the hit test
+    num_polygons = polygon_offsets.shape[0] - 1
+    polygon_lower = np.empty((max(num_polygons, 1), 2))
+    polygon_upper = np.empty((max(num_polygons, 1), 2))
+    polygon_bounds(vertices, polygon_offsets, polygon_lower, polygon_upper)
     # fmt: off
     #$ omp parallel for private(marker, x0, y0, x1, y1, sweep, best, obj, time) schedule(dynamic, 256)
     # fmt: on
@@ -133,7 +84,7 @@ def absorb_polygons_2d(
                 or min(y0, y1) > object_upper[obj, 1]
             ):
                 continue
-            time = _object_hit_time(
+            time = object_hit_time(
                 vertices,
                 polygon_offsets,
                 object_first[obj],
@@ -144,6 +95,8 @@ def absorb_polygons_2d(
                 x1,
                 y1,
                 sweep,
+                polygon_lower,
+                polygon_upper,
             )
             if time < best:
                 best = time
