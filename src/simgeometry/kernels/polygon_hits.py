@@ -2,7 +2,7 @@
 
 Used by the NumPy version of ``absorb_polygons_2d`` and by NumPy kernels of other
 packages that fuse the test (picnic's ``push_electrostatic_2d``): the same
-arithmetic as ``_object_hit_time`` of ``absorb_polygons_2d_pyccel.py``.
+arithmetic as ``object_hit_time`` of ``polygon_hit_pyccel.py``.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _hit_time_rules() -> dict:
     assumptions=(
         r"the object is the union of its polygons, negated if inverted; the end $x_1$ is tested by the even-odd rule over the vertices, without the bounding box of `Polygon.contains_points`",
         r"edges parallel to the step ($d \times e = 0$) are never crossings; a crossing at $t = 0$ is not a hit, at $t = 1$ it is",
-        "the same arithmetic as `_object_hit_time` of the Pyccel kernel `absorb_polygons_2d` and its CUDA form `polygon_hit.cuh`",
+        "the same arithmetic as `object_hit_time` of the Pyccel module `polygon_hit_pyccel` and its CUDA form `polygon_hit.cuh`",
     ),
     symbolic=_hit_time_rules,
 )

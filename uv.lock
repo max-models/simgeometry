@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -1113,8 +1113,8 @@ wheels = [
 
 [[package]]
 name = "cunumpy"
-version = "0.7.1"
-source = { git = "https://github.com/max-models/cunumpy.git?branch=devel#92b38a5a0e00d7ccf03aa39849d6c7eaee946859" }
+version = "0.8.0"
+source = { git = "https://github.com/max-models/cunumpy.git?branch=devel#b035c5dc0e5fd95cbfd1bbc4f50bb30789a0c50e" }
 dependencies = [
     { name = "array-api-compat" },
     { name = "maybempi" },

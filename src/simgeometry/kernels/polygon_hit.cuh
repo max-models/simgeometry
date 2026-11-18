@@ -1,5 +1,6 @@
 // The swept polygon-object hit test on the GPU: the same arithmetic as
-// _object_hit_time of absorb_polygons_2d_pyccel.py. Included by
+// object_hit_time of polygon_hit_pyccel.py (without its bounding-box skip,
+// which changes no result). Included by
 // absorb_polygons_2d_cuda.cu and by kernels of other packages that fuse the
 // test into their own loops (#include "simgeometry/kernels/polygon_hit.cuh",
 // with simgeometry's source root among the include directories). An object is the union of polygons first <= p < last of
